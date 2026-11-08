@@ -31,9 +31,11 @@ Your database, play counts and settings live in `server/navidrome/data`, so they
 ## Connect Spitify
 
 1. Find your computer's local IP. Windows: `ipconfig`, look for IPv4 Address. macOS / Linux: `ip addr` or System Settings → Network. It looks like `192.168.1.20`.
-2. In Spitify, open **Settings → Your server**.
+2. In Spitify (v1.0.29 or newer), open **Settings → Music sources → Your server**.
 3. Server address: `http://192.168.1.20:4533`
-4. Enter the username and password you made, then tap **Test connection**.
+4. Enter the username and password you made. Spitify checks the login straight away and shows **Connected** when it works.
+
+Your songs then turn up in Search, on a "Your server" page pinned in Your Library, and on a Home shelf. More on how the app talks to the server is in [docs/SOURCES.md](../../docs/SOURCES.md#your-server-navidrome--subsonic).
 
 Your phone has to be on the same Wi-Fi as the computer for this address to work.
 

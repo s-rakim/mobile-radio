@@ -2,9 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const path = require('path');
 const { Tubidy } = require("tubidy-scrape");
 const bcfetch = require('bandcamp-fetch');
+const scdl = require('soundcloud-downloader').default;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,132 +14,96 @@ app.use(express.static(__dirname));
 
 // --- Configuration ---
 const JAMENDO_CLIENT_ID = process.env.JAMENDO_CLIENT_ID || '56d30c55';
-const SOUNDCLOUD_CLIENT_ID = process.env.SOUNDCLOUD_CLIENT_ID; // Must be set in Render
 const AUDIUS_APP_NAME = 'SpitifyClone';
 const INVIDIOUS_INSTANCE = 'https://inv.nadeko.net';
 const tubidy = Tubidy();
 
 // --- 1. JAMENDO (Full Tracks) ---
 app.get('/api/jamendo', async (req, res) => {
-    const query = req.query.q;
     try {
-        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${JAMENDO_CLIENT_ID}&format=json&limit=10&search=${encodeURIComponent(query)}`;
+        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${JAMENDO_CLIENT_ID}&format=json&limit=10&search=${encodeURIComponent(req.query.q)}`;
         const response = await fetch(url);
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        console.error("Jamendo Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Jamendo" });
-    }
+    } catch (error) { res.status(500).json({ error: "Jamendo error" }); }
 });
 
-// --- 2. YOUTUBE (via Invidious - Full Audio) ---
+// --- 2. YOUTUBE (via Invidious) ---
 app.get('/api/youtube', async (req, res) => {
-    const query = req.query.q;
     try {
-        const response = await fetch(`${INVIDIOUS_INSTANCE}/api/v1/search?q=${encodeURIComponent(query)}&type=video`);
+        const response = await fetch(`${INVIDIOUS_INSTANCE}/api/v1/search?q=${encodeURIComponent(req.query.q)}&type=video`);
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        console.error("YouTube Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Invidious" });
-    }
+    } catch (error) { res.status(500).json({ error: "YouTube error" }); }
 });
 
 // --- 3. AUDIUS (Full Tracks) ---
 app.get('/api/audius', async (req, res) => {
-    const query = req.query.q;
     try {
-        const url = `https://discoveryprovider.audius.co/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=${AUDIUS_APP_NAME}`;
+        const url = `https://discoveryprovider.audius.co/v1/tracks/search?query=${encodeURIComponent(req.query.q)}&app_name=${AUDIUS_APP_NAME}`;
         const response = await fetch(url);
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        console.error("Audius Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Audius" });
-    }
+    } catch (error) { res.status(500).json({ error: "Audius error" }); }
 });
 
-// --- 4. SOUNDCLOUD (Full Tracks) ---
+// --- 4. SOUNDCLOUD (Bypassed) ---
 app.get('/api/soundcloud', async (req, res) => {
-    const query = req.query.q;
-    if (!SOUNDCLOUD_CLIENT_ID) {
-        return res.status(400).json({ error: "SoundCloud client ID not configured." });
-    }
     try {
-        const url = `https://api.soundcloud.com/tracks?q=${encodeURIComponent(query)}&client_id=${SOUNDCLOUD_CLIENT_ID}&limit=10`;
-        const response = await fetch(url);
-        const data = await response.json();
-        res.json(data);
-    } catch (error) {
-        console.error("SoundCloud Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from SoundCloud" });
+        // scdl automatically handles the client ID
+        const searchResult = await scdl.search({ query: req.query.q, limit: 10 });
+        res.json(searchResult.collection || []);
+    } catch (error) { 
+        console.error("SoundCloud Error:", error);
+        res.status(500).json({ error: "SoundCloud error" }); 
     }
 });
 
 // --- 5. DEEZER (30s Previews) ---
 app.get('/api/deezer', async (req, res) => {
-    const query = req.query.q;
     try {
-        const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=10`;
-        const response = await fetch(url);
+        const response = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(req.query.q)}&limit=10`);
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        console.error("Deezer Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Deezer" });
-    }
+    } catch (error) { res.status(500).json({ error: "Deezer error" }); }
 });
 
-// --- 6. TUBIDY (Scraper - Full MP3s) ---
+// --- 6. TUBIDY (MP3 Scraper) ---
 app.get('/api/tubidy', async (req, res) => {
-    const query = req.query.q;
     try {
-        const searchResults = await tubidy.search(query, 1);
-        if (!searchResults || searchResults.length === 0) {
-            return res.json([]);
-        }
+        const searchResults = await tubidy.search(req.query.q, 1);
+        if (!searchResults || searchResults.length === 0) return res.json([]);
+        
         const firstResult = searchResults[0];
         const downloadData = await tubidy.download(firstResult.id, "mp3audio");
-        const formattedResult = {
+        
+        res.json([{
             title: firstResult.title,
             artist: "Tubidy Source",
             audioUrl: downloadData.play,
             image: "https://placehold.co/60x45",
             source: "Tubidy",
             id: firstResult.id
-        };
-        res.json([formattedResult]);
-    } catch (error) {
-        console.error("Tubidy Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Tubidy" });
-    }
+        }]);
+    } catch (error) { res.status(500).json({ error: "Tubidy error" }); }
 });
 
-// --- 7. JIOSAAVN (Full Tracks via Unofficial API) ---
+// --- 7. JIOSAAVN (Unofficial API) ---
 app.get('/api/jiosaavn', async (req, res) => {
-    const query = req.query.q;
     try {
-        // Using the public saavn.dev instance as the API endpoint
-        const url = `https://jiosaavn-api-private.vercel.app/search/songs?query=${encodeURIComponent(query)}&limit=10`;
-        const response = await fetch(url);
+        const response = await fetch(`https://jiosaavn-api-private.vercel.app/search/songs?query=${encodeURIComponent(req.query.q)}&limit=10`);
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        console.error("JioSaavn Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from JioSaavn" });
-    }
+    } catch (error) { res.status(500).json({ error: "JioSaavn error" }); }
 });
 
-// --- 8. BANDCAMP (Full Tracks via Scraper) ---
+// --- 8. BANDCAMP (Scraper) ---
 app.get('/api/bandcamp', async (req, res) => {
-    const query = req.query.q;
     try {
-        // Note: bandcamp-fetch uses Puppeteer, which may be resource-intensive.
-        const searchResults = await bcfetch.search.albums({ query: query, page: 1 });
+        // Warning: Puppeteer is heavy. May time out on free tier if searching quickly.
+        const searchResults = await bcfetch.search.albums({ query: req.query.q, page: 1 });
         const tracks = [];
-        // Process top 3 albums to find streamable tracks
-        for (const album of searchResults.items.slice(0, 3)) {
+        for (const album of searchResults.items.slice(0, 2)) {
             const albumInfo = await bcfetch.album.getInfo({ albumUrl: album.url });
             for (const track of albumInfo.tracks) {
                 if (track.streamUrl) {
@@ -153,13 +117,10 @@ app.get('/api/bandcamp', async (req, res) => {
                     });
                 }
             }
-            if (tracks.length >= 5) break; // Limit results
+            if (tracks.length >= 5) break; 
         }
         res.json(tracks);
-    } catch (error) {
-        console.error("Bandcamp Proxy Error:", error);
-        res.status(500).json({ error: "Failed to fetch from Bandcamp" });
-    }
+    } catch (error) { res.status(500).json({ error: "Bandcamp error" }); }
 });
 
 app.listen(PORT, () => {

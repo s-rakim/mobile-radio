@@ -17,3 +17,8 @@ npm-debug.log*
 keystore/
 *.jks
 *.keystore
+# Signing keys stay off GitHub
+keystore/
+*.jks
+*.keystore
+cookies.txt

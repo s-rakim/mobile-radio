@@ -9,3 +9,7 @@ captures/
 .cxx/
 *.apk
 *.aab
+node_modules/
+.env
+npm-debug.log*
+.DS_Store

@@ -1,27 +1,50 @@
-const { execFile } = require('child_process');
-const path = require('path');
+import sys
+import json
+import yt_dlp
 
-const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
-
-module.exports = async (query) => {
-  return new Promise((resolve) => {
-    execFile('python3', ['-u', SCRIPT_PATH, query], { timeout: 30000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.warn('[youtube-docker] Python error:', error.message);
-        return resolve([{ error: error.message }]); 
-      }
-      
-      try {
-        const data = JSON.parse(stdout.trim());
-        if (data.error) {
-          console.warn('[youtube-docker] Scraper error:', data.error);
-          return resolve([{ error: data.error }]); // Show error in browser
+def fetch_song_stream(query):
+    opts = {
+        "quiet": True, 
+        "no_warnings": True, 
+        "noplaylist": True,
+        "default_search": "ytsearch1",
+        # Force yt-dlp to use these clients to bypass datacenter IP blocks
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"]
+            }
         }
-        resolve([data]); 
-      } catch (e) {
-        console.warn('[youtube-docker] Failed to parse JSON:', stdout);
-        resolve([{ error: "Parse failed: " + stdout }]);
-      }
-    });
-  });
-};
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            result = ydl.extract_info(f"ytsearch1:{query}", download=False)
+            
+        entries = result.get("entries") or []
+        if not entries:
+            return {"error": "No results found"}
+
+        video = entries[0]
+        
+        # Extract the audio url using the same extractor args
+        with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
+            info = ydl.extract_info(video["webpage_url"], download=False)
+            
+        if not info.get("url"):
+            return {"error": "Could not extract audio URL"}
+
+        return {
+            "title": info.get("title"),
+            "artist": info.get("uploader"),
+            "image": info.get("thumbnail"),
+            "audioUrl": info["url"],
+            "source": "youtube",
+            "id": f"yt-{info['id']}"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+if __name__ == "__main__":
+    query = sys.argv[1] if len(sys.argv) > 1 else ""
+    result = fetch_song_stream(query)
+    print(json.dumps(result))

@@ -3,6 +3,9 @@ const resultsContainer = document.getElementById('results-container');
 const audioPlayer = document.getElementById('audio-player');
 let debounceTimer;
 
+// 1. YOUR LIVE RENDER BACKEND URL
+const SERVER_IP = 'https://spitify-backend.onrender.com';
+
 searchBox.addEventListener('input', (e) => {
     const query = e.target.value.trim();
     clearTimeout(debounceTimer);
@@ -21,10 +24,10 @@ async function searchAllSources(searchQuery) {
     resultsContainer.innerHTML = '<p>Searching across catalogs...</p>';
 
     try {
-        // We now fetch from our OWN backend to bypass CORS errors
+        // Fetch from your live Render backend
         const [jamendoRes, youtubeRes] = await Promise.all([
-            fetch(`/api/jamendo?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ results: [] })),
-            fetch(`/api/youtube?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => [])
+            fetch(`${SERVER_IP}/api/jamendo?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ results: [] })),
+            fetch(`${SERVER_IP}/api/youtube?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => [])
         ]);
 
         // Format Jamendo Data
@@ -42,8 +45,8 @@ async function searchAllSources(searchQuery) {
             title: video.title,
             artist: video.author,
             image: video.videoThumbnails?.find(t => t.quality === 'medium')?.url || 'https://placehold.co/60x45',
-            // Route playback directly through Invidious streaming proxy endpoint
-            audioUrl: `https://puffyan.us/latest_version?id=${video.videoId}&itag=140`, 
+            // 2. UPDATED WORKING INVIDIOUS AUDIO LINK
+            audioUrl: `https://inv.nadeko.net/latest_version?id=${video.videoId}&itag=140`, 
             source: 'YouTube',
             id: video.videoId
         }));

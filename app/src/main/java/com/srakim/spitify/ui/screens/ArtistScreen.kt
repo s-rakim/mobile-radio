@@ -53,7 +53,6 @@ import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.data.SubsonicApi
 import com.srakim.spitify.ui.LocalBottomInset
-import com.srakim.spitify.data.JamendoApi
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
@@ -135,7 +134,6 @@ fun ArtistScreen(id: String) {
                     item {
                         Text(
                             when {
-                                JamendoApi.isJamendo(id) -> "Jamendo artist"
                                 SubsonicApi.isServer(id) -> "On your server"
                                 else -> "${formatCount(artist?.followers ?: 0)} followers"
                             },
@@ -203,7 +201,6 @@ fun ArtistScreen(id: String) {
                                     Text("${formatCount(artist.followers)} followers", style = MaterialTheme.typography.titleMedium)
                                     Text(
                                         when {
-                                            JamendoApi.isJamendo(artist.id) -> "On Jamendo"
                                             SubsonicApi.isServer(artist.id) -> "${artist.trackCount} songs on your server"
                                             else -> "${artist.trackCount} tracks on Audius"
                                         },

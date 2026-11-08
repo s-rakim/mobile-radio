@@ -180,7 +180,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                 modifier = Modifier.clickable(enabled = track.artistId.isNotBlank()) { actions.openArtist(track.artistId) },
                             )
                             if (track.source != "Audius") {
-                                // Credit where the song came from, with a link back when there is one (SoundCloud requires it).
+                                // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
                                 val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
                                 val link = track.link
                                 Text(

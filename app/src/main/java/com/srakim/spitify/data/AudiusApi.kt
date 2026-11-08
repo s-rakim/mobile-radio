@@ -145,7 +145,15 @@ internal data class ApiTrack(
     val user: ApiUser? = null,
     @SerialName("play_count") val playCount: Int = 0,
     @SerialName("is_streamable") val isStreamable: Boolean = true,
+    val stream: ApiStream? = null,
+    val access: ApiAccess? = null,
 )
+
+@Serializable
+internal data class ApiStream(val url: String? = null)
+
+@Serializable
+internal data class ApiAccess(val stream: Boolean = true)
 
 @Serializable
 internal data class ApiPlaylist(
@@ -157,7 +165,7 @@ internal data class ApiPlaylist(
     @SerialName("track_count") val trackCount: Int = 0,
 )
 
-private fun List<ApiTrack>.toTracks(): List<Track> = filter { it.isStreamable }.map { it.toTrack() }
+private fun List<ApiTrack>.toTracks(): List<Track> = filter { it.isStreamable && it.access?.stream != false }.map { it.toTrack() }
 
 private fun ApiTrack.toTrack() = Track(
     id = id,
@@ -170,6 +178,7 @@ private fun ApiTrack.toTrack() = Track(
     durationSec = duration,
     genre = genre,
     link = permalink?.let { "https://audius.co$it" },
+    directUrl = stream?.url?.takeIf { it.startsWith("https://") },
 )
 
 private fun ApiPlaylist.toPlaylist() = Playlist(

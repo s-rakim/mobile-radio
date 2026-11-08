@@ -156,10 +156,7 @@ Download a single song from its menu, or a whole playlist, mix, artist or Liked 
 
 - Local Files: songs saved on the phone, pinned in Your Library and first in Search
 - Your server: Navidrome or any Subsonic server, with its own page in Your Library and a Home shelf
-- Internet Archive netlabel albums and live recordings, on Home and in Search
-- ccMixter remixes on Home and in Search
-- Jamendo and SoundCloud, each hidden until you add your own keys
-- A credit line on the player saying where a song came from, with a link back
+- A line on the player saying when a song is from your phone or your server
 
 Details are in [SOURCES.md](SOURCES.md).
 

@@ -170,29 +170,9 @@ fun SettingsScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
 
     var editingName by remember { mutableStateOf(false) }
-    var editingJamendo by remember { mutableStateOf(false) }
-    var editingSoundCloud by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf(false) }
     val catalog = LocalCatalog.current
     val scope = rememberCoroutineScope()
-    var jamendoStatus by remember { mutableStateOf<String?>(null) }
-    androidx.compose.runtime.LaunchedEffect(settings.jamendoEnabled, settings.jamendoClientId) {
-        jamendoStatus = when {
-            settings.jamendoClientId.isBlank() -> null
-            !settings.jamendoEnabled -> "Off"
-            else -> {
-                jamendoStatus = "Checking…"
-                catalog.jamendo.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
-            }
-        }
-    }
-    var soundCloudStatus by remember { mutableStateOf<String?>(null) }
-    androidx.compose.runtime.LaunchedEffect(settings.soundCloudClientId, settings.soundCloudClientSecret) {
-        soundCloudStatus = if (!catalog.soundCloud.enabled) null else {
-            soundCloudStatus = "Checking…"
-            catalog.soundCloud.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
-        }
-    }
     var serverStatus by remember { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(settings.subsonicUrl, settings.subsonicUser, settings.subsonicPassword, settings.subsonicEnabled) {
         serverStatus = if (!catalog.server.enabled) null else {
@@ -293,17 +273,7 @@ fun SettingsScreen() {
         }
 
         group("Music sources")
-        item { SettingRow("Audius", "Always on. Independent artists, and the biggest catalogue here.") }
-        item {
-            ToggleRow(
-                "Internet Archive",
-                "Netlabel albums and live concert recordings that artists allow to be shared.",
-                settings.archiveEnabled,
-            ) { v -> set { it.copy(archiveEnabled = v) } }
-        }
-        item {
-            ToggleRow("ccMixter", "Creative Commons remixes and originals.", settings.ccMixterEnabled) { v -> set { it.copy(ccMixterEnabled = v) } }
-        }
+        item { SettingRow("Audius", "Always on. The main catalogue.") }
         item {
             SettingRow(
                 "Your server",
@@ -318,33 +288,6 @@ fun SettingsScreen() {
             item {
                 ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
             }
-        }
-        if (settings.jamendoClientId.isNotBlank()) {
-            item {
-                ToggleRow(
-                    "Jamendo",
-                    "Creative Commons music in search, artist pages and Home. ${jamendoStatus.orEmpty()}",
-                    settings.jamendoEnabled,
-                ) { v -> set { it.copy(jamendoEnabled = v) } }
-            }
-        }
-        item {
-            SettingRow(
-                "Jamendo client ID",
-                settings.jamendoClientId.ifBlank { "Optional. Jamendo stays off until you add one." },
-                onClick = { editingJamendo = true },
-            )
-        }
-        item {
-            SettingRow(
-                "SoundCloud",
-                if (settings.soundCloudClientId.isBlank()) {
-                    "Optional. Needs your own app keys from soundcloud.com/you/apps."
-                } else {
-                    "App keys added. ${soundCloudStatus.orEmpty()}"
-                },
-                onClick = { editingSoundCloud = true },
-            )
         }
 
         group("Local files")
@@ -439,8 +382,7 @@ fun SettingsScreen() {
         item {
             SettingRow(
                 "Music catalogue",
-                "Songs come from Audius, the Internet Archive's netlabel and live music collections, ccMixter, " +
-                    "and, if you set them up, your own server, Jamendo and SoundCloud. Plus anything saved on your phone.",
+                "Songs come from Audius, an open music platform, plus anything saved on your phone and your own server if you add one.",
             )
         }
         item { SettingRow("Lyrics", "Provided by LRCLIB, a free community lyrics database.") }
@@ -477,68 +419,6 @@ fun SettingsScreen() {
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
-        )
-    }
-
-    if (editingJamendo) {
-        var id by remember { mutableStateOf(settings.jamendoClientId) }
-        AlertDialog(
-            onDismissRequest = { editingJamendo = false },
-            containerColor = SpitifyColors.Elevated,
-            title = { Text("Jamendo client ID") },
-            text = {
-                Column {
-                    Text(
-                        "Sign up at devportal.jamendo.com, create an app and paste its client ID here. Leave it empty to keep Jamendo off.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = id,
-                        onValueChange = { id = it.trim().take(64) },
-                        singleLine = true,
-                        placeholder = { Text("e.g. 1a2b3c4d") },
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SpitifyColors.Accent, cursorColor = SpitifyColors.Accent),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    set { it.copy(jamendoClientId = id) }
-                    editingJamendo = false
-                }) { Text("Save", color = SpitifyColors.Accent) }
-            },
-            dismissButton = { TextButton(onClick = { editingJamendo = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
-        )
-    }
-
-    if (editingSoundCloud) {
-        var id by remember { mutableStateOf(settings.soundCloudClientId) }
-        var secret by remember { mutableStateOf(settings.soundCloudClientSecret) }
-        AlertDialog(
-            onDismissRequest = { editingSoundCloud = false },
-            containerColor = SpitifyColors.Elevated,
-            title = { Text("SoundCloud app keys") },
-            text = {
-                Column {
-                    Text(
-                        "Register an app at soundcloud.com/you/apps and paste its client ID and secret. " +
-                            "Spitify only plays tracks SoundCloud marks as playable and never downloads them. Leave both empty to keep SoundCloud off.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    DialogField(id, { id = it.trim() }, "Client ID")
-                    Spacer(Modifier.height(8.dp))
-                    DialogField(secret, { secret = it.trim() }, "Client secret", secret = true)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    set { it.copy(soundCloudClientId = id, soundCloudClientSecret = secret) }
-                    editingSoundCloud = false
-                }) { Text("Save", color = SpitifyColors.Accent) }
-            },
-            dismissButton = { TextButton(onClick = { editingSoundCloud = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 

@@ -133,7 +133,6 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalDownloads provides app.downloads,
         LocalThemes provides app.themes,
         LocalLyrics provides app.lyrics,
-        LocalJamendo provides app.jamendo,
         LocalCatalog provides app.catalog,
         LocalActions provides actions,
         LocalDataSaver provides settings.dataSaver,

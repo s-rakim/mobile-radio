@@ -299,11 +299,21 @@ class PlayerController(
 
 fun Track.remoteUri(): Uri = Uri.parse(streamUrl ?: AudiusApi.streamUrl(id))
 
+/**
+ * What the player should open. For Audius songs that's the direct storage-node link when there
+ * is one, with the regular stream address tucked into the fragment as a fallback.
+ */
+fun Track.playbackUri(): Uri {
+    val direct = directUrl
+    if (streamUrl != null || direct == null) return remoteUri()
+    return FallbackDataSource.withFallback(Uri.parse(direct), remoteUri())
+}
+
 fun Track.toMediaItem(localFile: File? = null): MediaItem = MediaItem.Builder()
     .setMediaId(id)
-    .setUri(localFile?.let(Uri::fromFile) ?: remoteUri())
+    .setUri(localFile?.let(Uri::fromFile) ?: playbackUri())
     // The URI itself doesn't survive the trip to the playback service, request metadata does.
-    .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(remoteUri()).build())
+    .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(playbackUri()).build())
     .setMediaMetadata(
         MediaMetadata.Builder()
             .setTitle(title)

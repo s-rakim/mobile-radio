@@ -2,7 +2,7 @@
 
 Spitify is an Android music streaming app built to feel like the streaming apps you already know: a home feed full of shelves, search with genre tiles, a library for everything you've saved, and a full-screen player that takes its colour from the album art.
 
-Music comes from [Audius](https://audius.co), the [Internet Archive](https://archive.org/details/netlabels)'s netlabel and live collections, and [ccMixter](https://ccmixter.org), so there's real music to play without an account or API key. You can also play songs saved on your phone, your own [Navidrome](https://www.navidrome.org) or Subsonic server, and Jamendo or SoundCloud if you have keys for them. See [docs/SOURCES.md](docs/SOURCES.md). Lyrics come from [LRCLIB](https://lrclib.net) when a song is listed there.
+Music comes from [Audius](https://audius.co), an open catalogue of independent artists, so there's real music to play without an account or API key. You can also play songs saved on your phone and your own [Navidrome](https://www.navidrome.org) or Subsonic server. See [docs/SOURCES.md](docs/SOURCES.md). Lyrics come from [LRCLIB](https://lrclib.net) when a song is listed there.
 
 ## Download
 
@@ -63,7 +63,7 @@ The APK lands in `app/build/outputs/apk/release/`. More detail, including signin
 - [Architecture](docs/ARCHITECTURE.md): how the code is laid out
 - [Design](docs/DESIGN.md): colours, type and the theme system
 - [Building](docs/BUILDING.md): local builds, CI and signing
-- [Sources](docs/SOURCES.md): every music source, what it needs and why some were left out
+- [Sources](docs/SOURCES.md): Audius, Local Files and your own server
 - [Branding](docs/BRANDING.md): the two app icons and how the switcher works
 - [Web server](server/README.md): the optional Node backend and test page
 

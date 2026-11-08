@@ -8,12 +8,8 @@ app/src/main/java/com/srakim/spitify/
 ├── MainActivity.kt        Splash, edge-to-edge, notification permission, sets content
 ├── data/
 │   ├── Models.kt          Track, Playlist, Artist, UserPlaylist, RecentItem, genres
-│   ├── Catalog.kt         One front door for every source: merged search, routing by id prefix
+│   ├── Catalog.kt         Search and detail pages across Audius, your server and the phone
 │   ├── AudiusApi.kt       Catalogue client with a short in-memory cache
-│   ├── ArchiveApi.kt      Internet Archive netlabels and live shows (ia:)
-│   ├── CcMixterApi.kt     ccMixter Creative Commons tracks (cc:)
-│   ├── JamendoApi.kt      Jamendo, only with the listener's own client id (jm:)
-│   ├── SoundCloudApi.kt   Official SoundCloud API, only with the listener's app keys (sc:)
 │   ├── SubsonicApi.kt     Navidrome / Subsonic server with token auth (ss:)
 │   ├── LocalMusic.kt      Songs on the phone, read from MediaStore (local:)
 │   ├── AppIcons.kt        Launcher icon switcher (activity-alias)
@@ -101,9 +97,8 @@ The full player is an overlay above the nav host rather than a destination, so i
 
 ## Sources and ids
 
-Every track, album and artist id carries a prefix that says where it came from: none for Audius, then `ia:`, `cc:`, `jm:`, `sc:`, `ss:` and `local:`. `Catalog` uses that prefix to send a detail page to the right client, and `Track.source` uses it for the "On SoundCloud ↗" style credit on the player.
+Track, album and artist ids from your server start with `ss:`, and songs on the phone with `local:`. Audius ids have no prefix. `Catalog` uses the prefix to send a detail page to the right client, and the player shows "From this device" or "From your server" under those songs.
 
-Most sources hand out a plain stream address that goes straight into the `MediaItem`. Two are special. Local files use a `content://` URI, which ExoPlayer's `DefaultDataSource` already reads. SoundCloud stream addresses are signed and expire, so tracks carry a `soundcloud://tracks/<id>` placeholder and a `ResolvingDataSource` in `PlaybackService` swaps it for a fresh address the moment the player starts loading.
+Audius songs start from the direct storage-node link the API includes with each track, with the regular stream address in the URI fragment as a backup. `playback/FallbackDataSource.kt` strips the fragment before the request goes out and opens the backup if the direct link fails. Local files use a `content://` URI, which ExoPlayer's `DefaultDataSource` reads as is.
 
-See [SOURCES.md](SOURCES.md) for what each source needs and why others were left out.
-
+See [SOURCES.md](SOURCES.md) for more.

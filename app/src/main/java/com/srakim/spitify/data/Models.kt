@@ -16,22 +16,24 @@ data class Track(
     val link: String? = null,
     /** Direct audio address for sources that hand one out. Audius builds it from the id. */
     val streamUrl: String? = null,
+    /**
+     * Audius' own direct link to the file on a storage node. Starting from it skips the API's
+     * redirect, which roughly halves the wait before a song starts. It can go stale, so the
+     * player falls back to the regular stream address if it fails.
+     */
+    val directUrl: String? = null,
 ) {
     val source: String
         get() = when {
             id.startsWith(LocalMusic.ID_PREFIX) -> "This device"
             id.startsWith(SubsonicApi.ID_PREFIX) -> "Your server"
-            id.startsWith(JamendoApi.ID_PREFIX) -> "Jamendo"
-            id.startsWith(ArchiveApi.ID_PREFIX) -> "Internet Archive"
-            id.startsWith(CcMixterApi.ID_PREFIX) -> "ccMixter"
-            id.startsWith(SoundCloudApi.ID_PREFIX) -> "SoundCloud"
             else -> "Audius"
         }
 
     val isLocal: Boolean get() = id.startsWith(LocalMusic.ID_PREFIX)
 
-    /** Songs already on the phone don't need saving, and SoundCloud doesn't allow it. */
-    val canDownload: Boolean get() = !isLocal && !id.startsWith(SoundCloudApi.ID_PREFIX)
+    /** Songs already on the phone don't need saving. */
+    val canDownload: Boolean get() = !isLocal
 }
 
 @Serializable

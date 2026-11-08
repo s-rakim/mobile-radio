@@ -2,17 +2,24 @@ import sys
 import json
 import yt_dlp
 import os
+import shutil
 
 def fetch_song_stream(query):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Setup Cookie Path (Render Secret File vs Local)
+    # 1. Locate the original cookies file
     if os.path.exists('/etc/secrets/cookies.txt'):
-        cookie_path = '/etc/secrets/cookies.txt'
+        original_cookie_path = '/etc/secrets/cookies.txt'
     else:
-        cookie_path = os.path.join(script_dir, 'cookies.txt')
+        original_cookie_path = os.path.join(script_dir, 'cookies.txt')
 
-    # 2. Setup PO Token Provider URL (from Render Env Var)
+    # 2. Copy to a writable location in /tmp (Render's read-only fix)
+    writable_cookie_path = None
+    if os.path.exists(original_cookie_path):
+        writable_cookie_path = '/tmp/cookies_working.txt'
+        shutil.copyfile(original_cookie_path, writable_cookie_path)
+
+    # 3. Setup PO Token Provider URL
     pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
 
     opts = {
@@ -20,10 +27,9 @@ def fetch_song_stream(query):
         "no_warnings": True, 
         "noplaylist": True,
         "default_search": "ytsearch1",
-        "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
+        "cookiefile": writable_cookie_path, # Use the /tmp copy
     }
 
-    # 3. Add PO Token Provider if it exists
     if pot_url:
         opts["extractor_args"] = {
             "youtubepot-bgutilhttp": {
@@ -41,7 +47,6 @@ def fetch_song_stream(query):
 
         video = entries[0]
         
-        # Extract the audio url using the same opts
         with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
             info = ydl.extract_info(video["webpage_url"], download=False)
             

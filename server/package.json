@@ -1,18 +1,13 @@
 {
   "name": "spitify-backend",
   "version": "1.0.0",
-  "description": "Audio stream proxy server for Spitify",
+  "description": "Spitify proxy backend",
   "main": "index.js",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "node-fetch": "^2.6.7"
+    "express": "^4.19.2"
   }
 }

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spitify Web</title>
+  <meta name="theme-color" content="#121212">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1 class="brand">Spitify</h1>
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.24 4.24-1.4 1.4-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg>
+      <input type="search" id="search-box" placeholder="What do you want to listen to?" autocomplete="off" spellcheck="false" aria-label="Search tracks">
+    </label>
+    <div class="filters" role="tablist" aria-label="Source">
+      <button class="chip is-active" data-source="all" role="tab" aria-selected="true">All</button>
+      <button class="chip" data-source="jamendo" role="tab" aria-selected="false">Jamendo</button>
+      <button class="chip" data-source="audius" role="tab" aria-selected="false">Audius</button>
+    </div>
+  </header>
+
+  <main>
+    <p id="status" class="status" aria-live="polite">Search for a song, an artist or a mood.</p>
+    <ol id="results-container" class="results"></ol>
+  </main>
+
+  <footer id="player" class="player" hidden>
+    <div class="player-track">
+      <img id="player-art" alt="" width="48" height="48">
+      <div class="player-meta">
+        <strong id="player-title"></strong>
+        <small id="player-artist"></small>
+      </div>
+    </div>
+    <div class="player-controls">
+      <div class="buttons">
+        <button id="prev-btn" class="icon-btn" aria-label="Previous track">
+          <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+        </button>
+        <button id="toggle-btn" class="icon-btn big" aria-label="Pause">
+          <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <button id="next-btn" class="icon-btn" aria-label="Next track">
+          <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5l11 7-11 7z"/></svg>
+        </button>
+      </div>
+      <div class="seek">
+        <span id="time-current">0:00</span>
+        <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+        <span id="time-total">0:00</span>
+      </div>
+    </div>
+  </footer>
+
+  <audio id="audio-player" preload="none"></audio>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

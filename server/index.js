@@ -5,7 +5,6 @@ const youtubeRunner = require('./services/youtubeRunner');
 const app = express();
 app.use(cors());
 
-// YouTube Audio Route
 app.get('/api/youtube', async (req, res) => {
   const query = req.query.q || '';
   if (!query) return res.json([]);

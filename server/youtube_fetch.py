@@ -7,7 +7,13 @@ def fetch_song_stream(query):
         "quiet": True, 
         "no_warnings": True, 
         "noplaylist": True,
-        "default_search": "ytsearch1"
+        "default_search": "ytsearch1",
+        # Force yt-dlp to use these clients to bypass datacenter IP blocks
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"]
+            }
+        }
     }
 
     try:
@@ -20,7 +26,7 @@ def fetch_song_stream(query):
 
         video = entries[0]
         
-        # Extract the audio url
+        # Extract the audio url using the same extractor args
         with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
             info = ydl.extract_info(video["webpage_url"], download=False)
             
@@ -41,5 +47,4 @@ def fetch_song_stream(query):
 if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else ""
     result = fetch_song_stream(query)
-    # Print raw JSON to stdout
     print(json.dumps(result))

@@ -1,0 +1,14 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.youtube.com	TRUE	/	TRUE	1802864836	__Secure-YENID	17.YTE=mVW9BBHSf3IiYklkbThyBHrbnQiguXmj6PuNLf4R7h0bH9w7Ipzvks1uBsGQ_jy5j-bqRyRzMp_74v-TPqAhXLzOM1mGA-7h4H9fdEBnWIR4mqgWTtSQUNrZxBlEERc5j8bHjqdKJwMt7fOBee07LsPMsCa--MkYmNfrjatJ10crSBerLiaGEwwilxoNqX7jc2waggGsMWQZ9JL-yGyF9tyzuf43tVWbgUqEjEA_RQDhOKIY77PzZyZVozvJopD1pFqHABnze8xqy6Qx0fOLA1GVj1d-MhVuMqba_jUlC26CNhvAr9HT7jVogXXO4J-vNTWes-m6Rh86p_h-zLLorw
+.youtube.com	TRUE	/	TRUE	1806397680	__Secure-BUCKET	CIoD
+.youtube.com	TRUE	/	TRUE	1809725072	PREF	f6=40000000&tz=America.Chicago&f7=150&f4=4000000
+.youtube.com	TRUE	/	TRUE	1794174861	GPS	1
+.youtube.com	TRUE	/	TRUE	0	wide	1
+.youtube.com	TRUE	/	TRUE	1809725062	VISITOR_INFO1_LIVE	cIk8IETbME0
+.youtube.com	TRUE	/	TRUE	1809725062	VISITOR_PRIVACY_METADATA	CgJLRRIEGgAgKg%3D%3D
+.youtube.com	TRUE	/	TRUE	1809683310	__Secure-YNID	CuwBCAUSngEBDB6PDC8hDyCQrkLbiyL1Pzcx-HvzIRYqDQ_V6WWYEulvrZ3RmM36ZaQiYxofInVvmWKTDeFLqMYQjt8zZjwE_TZ7L6EubbxJ2DaqLvXnYmaQaFP-mM6c4-WC5kCmC2AgBgkmp24GX8x_CrDZYmrITxm4khaw_cks3C0NMCU9DbcIRSQKjBEJuj7RhITZgjhoGkqKd147DqqJ99iszygFMkUBHFj1alqOFk73yJEKCt_v2PfUGAm43Lp1d_zOWO3hHoxqSxH-t-uZaDylmxEYM2IzJVnmiiI0aFAiwXKExecT-JAMrAw
+.youtube.com	TRUE	/	TRUE	1809683310	__Secure-ROLLOUT_TOKEN	CNSFjNWyur3-zgEQsM6csJTzlQMYiu2L-4v4lwM%3D
+.youtube.com	TRUE	/	TRUE	0	YSC	--maNfSbRqE

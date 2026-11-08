@@ -1,20 +1,35 @@
 import sys
 import json
 import yt_dlp
+import os
 
 def fetch_song_stream(query):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 1. Setup Cookie Path (Render Secret File vs Local)
+    if os.path.exists('/etc/secrets/cookies.txt'):
+        cookie_path = '/etc/secrets/cookies.txt'
+    else:
+        cookie_path = os.path.join(script_dir, 'cookies.txt')
+
+    # 2. Setup PO Token Provider URL (from Render Env Var)
+    pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
+
     opts = {
         "quiet": True, 
         "no_warnings": True, 
         "noplaylist": True,
         "default_search": "ytsearch1",
-        # Force yt-dlp to use these clients to bypass datacenter IP blocks
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "web"]
+        "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
+    }
+
+    # 3. Add PO Token Provider if it exists
+    if pot_url:
+        opts["extractor_args"] = {
+            "youtubepot-bgutilhttp": {
+                "base_url": [pot_url]
             }
         }
-    }
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -26,7 +41,7 @@ def fetch_song_stream(query):
 
         video = entries[0]
         
-        # Extract the audio url using the same extractor args
+        # Extract the audio url using the same opts
         with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
             info = ydl.extract_info(video["webpage_url"], download=False)
             

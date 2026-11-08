@@ -12,3 +12,8 @@ captures/
 node_modules/
 .env
 npm-debug.log*
+
+# Signing keys stay off GitHub
+keystore/
+*.jks
+*.keystore

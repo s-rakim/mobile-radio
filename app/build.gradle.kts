@@ -17,21 +17,18 @@ android {
         versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
     }
 
+    // The release key never lives in the repo. CI writes it from secrets (or makes a
+    // throwaway one) and passes the path in SPITIFY_KEYSTORE. Without it, release builds
+    // fall back to the debug key so a local assembleRelease still works.
+    val releaseStore = System.getenv("SPITIFY_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+
     signingConfigs {
-        create("release") {
-            // CI can provide a private keystore through secrets. Without one we fall back
-            // to the shared dev key in /keystore so every build can update the last one.
-            val customStore = System.getenv("SPITIFY_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
-            if (customStore != null) {
-                storeFile = customStore
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = releaseStore
                 storePassword = System.getenv("SPITIFY_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("SPITIFY_KEY_ALIAS")
                 keyPassword = System.getenv("SPITIFY_KEY_PASSWORD")
-            } else {
-                storeFile = rootProject.file("keystore/spitify-dev.jks")
-                storePassword = "spitify-dev"
-                keyAlias = "spitify"
-                keyPassword = "spitify-dev"
             }
         }
     }
@@ -40,7 +37,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

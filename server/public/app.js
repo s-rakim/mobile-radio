@@ -29,18 +29,11 @@ async function searchAllSources(searchQuery) {
 
     try {
         const [
-            jamendoRes, youtubeRes, audiusRes, soundcloudRes, 
-            deezerRes, tubidyRes, jiosaavnRes, bandcampRes,
-            archiveRes, ccmixterRes
+            jamendoRes, audiusRes, deezerRes, archiveRes, ccmixterRes
         ] = await Promise.all([
             fetch(`${SERVER_IP}/api/jamendo?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ results: [] })),
-            fetch(`${SERVER_IP}/api/youtube?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
             fetch(`${SERVER_IP}/api/audius?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ data: [] })),
-            fetch(`${SERVER_IP}/api/soundcloud?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
             fetch(`${SERVER_IP}/api/deezer?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ data: [] })),
-            fetch(`${SERVER_IP}/api/tubidy?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
-            fetch(`${SERVER_IP}/api/jiosaavn?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ data: { results: [] } })),
-            fetch(`${SERVER_IP}/api/bandcamp?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
             fetch(`${SERVER_IP}/api/archive?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
             fetch(`${SERVER_IP}/api/ccmixter?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => [])
         ]);
@@ -53,15 +46,7 @@ async function searchAllSources(searchQuery) {
             audioUrl: track.audio, source: 'Jamendo', id: track.id
         }));
 
-        // 2. YouTube
-        const youtubeTracks = (Array.isArray(youtubeRes) ? youtubeRes.slice(0, 5) : []).map(video => ({
-            title: video.title, artist: video.author,
-            image: video.videoThumbnails?.find(t => t.quality === 'medium')?.url || 'https://placehold.co/60x45',
-            audioUrl: `https://inv.nadeko.net/latest_version?id=${video.videoId}&itag=140`, 
-            source: 'YouTube', id: video.videoId
-        }));
-
-        // 3. Audius
+        // 2. Audius
         const audiusTracks = (audiusRes.data || []).slice(0, 5).map(track => ({
             title: track.title, artist: track.user.name,
             image: track.artwork?.['150x150'] || 'https://placehold.co/60x45',
@@ -69,41 +54,11 @@ async function searchAllSources(searchQuery) {
             source: 'Audius', id: track.id
         }));
 
-        // 4. SoundCloud (Using the bypass response structure)
-        const soundcloudTracks = (Array.isArray(soundcloudRes) ? soundcloudRes.slice(0, 5) : []).map(track => ({
-            title: track.title, artist: track.user.username,
-            image: track.artwork_url || 'https://placehold.co/60x45',
-            audioUrl: track.stream_url, // scdl provides playable stream
-            source: 'SoundCloud', id: track.id
-        })).filter(track => track.audioUrl);
-
-        // 5. Deezer
+        // 3. Deezer
         const deezerTracks = (deezerRes.data || []).slice(0, 5).map(track => ({
             title: track.title, artist: track.artist.name,
             image: track.album.cover_medium || 'https://placehold.co/60x45',
             audioUrl: track.preview, source: 'Deezer (Preview)', id: track.id
-        }));
-
-        // 6. Tubidy
-        const tubidyTracks = (Array.isArray(tubidyRes) ? tubidyRes : []).map(track => ({
-            title: track.title, artist: track.artist,
-            image: track.image, audioUrl: track.audioUrl,
-            source: 'Tubidy', id: track.id
-        }));
-
-        // 7. JioSaavn
-        const jiosaavnTracks = (jiosaavnRes.data?.results || []).slice(0, 5).map(track => ({
-            title: track.name, artist: track.artists.primary[0]?.name || 'Unknown Artist',
-            image: track.image?.[2]?.url || 'https://placehold.co/60x45',
-            audioUrl: track.downloadUrl?.[4]?.url || track.downloadUrl?.[3]?.url,
-            source: 'JioSaavn', id: track.id
-        })).filter(track => track.audioUrl);
-
-        // 8. Bandcamp
-        const bandcampTracks = (Array.isArray(bandcampRes) ? bandcampRes : []).map(track => ({
-            title: track.title, artist: track.artist,
-            image: track.image, audioUrl: track.audioUrl,
-            source: 'Bandcamp', id: track.id
         }));
 
         const archiveTracks = Array.isArray(archiveRes) ? archiveRes : [];
@@ -111,8 +66,7 @@ async function searchAllSources(searchQuery) {
 
         // Combine everything!
         const combinedResults = [
-            ...jamendoTracks, ...youtubeTracks, ...audiusTracks, ...soundcloudTracks,
-            ...deezerTracks, ...tubidyTracks, ...jiosaavnTracks, ...bandcampTracks,
+            ...jamendoTracks, ...audiusTracks, ...deezerTracks,
             ...archiveTracks, ...ccmixterTracks
         ];
         

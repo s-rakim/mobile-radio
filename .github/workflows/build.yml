@@ -37,23 +37,37 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Use private signing key if one is configured
+      - name: Set up the signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.SPITIFY_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SPITIFY_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SPITIFY_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SPITIFY_KEY_PASSWORD }}
         run: |
+          STORE="$RUNNER_TEMP/spitify-release.jks"
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/spitify-release.jks"
-            echo "SPITIFY_KEYSTORE=$RUNNER_TEMP/spitify-release.jks" >> "$GITHUB_ENV"
-            echo "Signing with the private release key"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$STORE"
+            echo "Signing with the release key from secrets"
           else
-            echo "No private key set, signing with the shared dev key"
+            # No secrets (forks, or before they're added). This key only lives for this run,
+            # so the APK won't install over an earlier build. See docs/BUILDING.md.
+            KEYSTORE_PASSWORD="throwaway-$GITHUB_RUN_ID"
+            KEY_ALIAS=spitify
+            KEY_PASSWORD="$KEYSTORE_PASSWORD"
+            keytool -genkeypair -noprompt -keystore "$STORE" -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+              -dname "CN=Spitify CI"
+            echo "::warning::SPITIFY_KEYSTORE_BASE64 isn't set, so this APK is signed with a one-off key and won't update an installed copy."
           fi
+          {
+            echo "SPITIFY_KEYSTORE=$STORE"
+            echo "SPITIFY_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "SPITIFY_KEY_ALIAS=$KEY_ALIAS"
+            echo "SPITIFY_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
 
       - name: Build release APK
-        env:
-          SPITIFY_KEYSTORE_PASSWORD: ${{ secrets.SPITIFY_KEYSTORE_PASSWORD }}
-          SPITIFY_KEY_ALIAS: ${{ secrets.SPITIFY_KEY_ALIAS }}
-          SPITIFY_KEY_PASSWORD: ${{ secrets.SPITIFY_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace assembleRelease

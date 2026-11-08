@@ -3,7 +3,7 @@ const resultsContainer = document.getElementById('results-container');
 const audioPlayer = document.getElementById('audio-player');
 let debounceTimer;
 
-// Your live Render backend URL
+// YOUR RENDER URL
 const SERVER_IP = 'https://spitify-backend.onrender.com';
 
 searchBox.addEventListener('input', (e) => {
@@ -21,19 +21,12 @@ searchBox.addEventListener('input', (e) => {
 });
 
 async function searchAllSources(searchQuery) {
-    resultsContainer.innerHTML = '<p>Searching across catalogs...</p>';
+    resultsContainer.innerHTML = '<p>Searching across 8 catalogs...</p>';
 
     try {
-        // Fetch from ALL sources concurrently
         const [
-            jamendoRes, 
-            youtubeRes, 
-            audiusRes, 
-            soundcloudRes, 
-            deezerRes,
-            tubidyRes,
-            jiosaavnRes,
-            bandcampRes
+            jamendoRes, youtubeRes, audiusRes, soundcloudRes, 
+            deezerRes, tubidyRes, jiosaavnRes, bandcampRes
         ] = await Promise.all([
             fetch(`${SERVER_IP}/api/jamendo?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => ({ results: [] })),
             fetch(`${SERVER_IP}/api/youtube?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => []),
@@ -45,99 +38,70 @@ async function searchAllSources(searchQuery) {
             fetch(`${SERVER_IP}/api/bandcamp?q=${encodeURIComponent(searchQuery)}`).then(res => res.json()).catch(() => [])
         ]);
 
-        // --- Format results from each source ---
-
         // 1. Jamendo
         const jamendoTracks = (jamendoRes.results || []).map(track => ({
-            title: track.name,
-            artist: track.artist_name,
+            title: track.name, artist: track.artist_name,
             image: track.album_image || 'https://placehold.co/60x45',
-            audioUrl: track.audio,
-            source: 'Jamendo',
-            id: track.id
+            audioUrl: track.audio, source: 'Jamendo', id: track.id
         }));
 
-        // 2. YouTube (Invidious)
+        // 2. YouTube
         const youtubeTracks = (Array.isArray(youtubeRes) ? youtubeRes.slice(0, 5) : []).map(video => ({
-            title: video.title,
-            artist: video.author,
+            title: video.title, artist: video.author,
             image: video.videoThumbnails?.find(t => t.quality === 'medium')?.url || 'https://placehold.co/60x45',
             audioUrl: `https://inv.nadeko.net/latest_version?id=${video.videoId}&itag=140`, 
-            source: 'YouTube',
-            id: video.videoId
+            source: 'YouTube', id: video.videoId
         }));
 
         // 3. Audius
         const audiusTracks = (audiusRes.data || []).slice(0, 5).map(track => ({
-            title: track.title,
-            artist: track.user.name,
+            title: track.title, artist: track.user.name,
             image: track.artwork?.['150x150'] || 'https://placehold.co/60x45',
             audioUrl: `https://discoveryprovider.audius.co/v1/tracks/${track.id}/stream?app_name=SpitifyClone`,
-            source: 'Audius',
-            id: track.id
+            source: 'Audius', id: track.id
         }));
 
-        // 4. SoundCloud
+        // 4. SoundCloud (Using the bypass response structure)
         const soundcloudTracks = (Array.isArray(soundcloudRes) ? soundcloudRes.slice(0, 5) : []).map(track => ({
-            title: track.title,
-            artist: track.user.username,
+            title: track.title, artist: track.user.username,
             image: track.artwork_url || 'https://placehold.co/60x45',
-            audioUrl: track.stream_url ? `${track.stream_url}?client_id=${process.env.SOUNDCLOUD_CLIENT_ID}` : null,
-            source: 'SoundCloud',
-            id: track.id
+            audioUrl: track.stream_url, // scdl provides playable stream
+            source: 'SoundCloud', id: track.id
         })).filter(track => track.audioUrl);
 
         // 5. Deezer
         const deezerTracks = (deezerRes.data || []).slice(0, 5).map(track => ({
-            title: track.title,
-            artist: track.artist.name,
+            title: track.title, artist: track.artist.name,
             image: track.album.cover_medium || 'https://placehold.co/60x45',
-            audioUrl: track.preview,
-            source: 'Deezer (Preview)',
-            id: track.id
+            audioUrl: track.preview, source: 'Deezer (Preview)', id: track.id
         }));
 
         // 6. Tubidy
         const tubidyTracks = (Array.isArray(tubidyRes) ? tubidyRes : []).map(track => ({
-            title: track.title,
-            artist: track.artist,
-            image: track.image,
-            audioUrl: track.audioUrl,
-            source: 'Tubidy',
-            id: track.id
+            title: track.title, artist: track.artist,
+            image: track.image, audioUrl: track.audioUrl,
+            source: 'Tubidy', id: track.id
         }));
 
         // 7. JioSaavn
         const jiosaavnTracks = (jiosaavnRes.data?.results || []).slice(0, 5).map(track => ({
-            title: track.name,
-            artist: track.artists.primary[0]?.name || 'Unknown Artist',
+            title: track.name, artist: track.artists.primary[0]?.name || 'Unknown Artist',
             image: track.image?.[2]?.url || 'https://placehold.co/60x45',
-            // JioSaavn provides download URLs at various qualities; we use the highest
             audioUrl: track.downloadUrl?.[4]?.url || track.downloadUrl?.[3]?.url,
-            source: 'JioSaavn',
-            id: track.id
+            source: 'JioSaavn', id: track.id
         })).filter(track => track.audioUrl);
 
         // 8. Bandcamp
         const bandcampTracks = (Array.isArray(bandcampRes) ? bandcampRes : []).map(track => ({
-            title: track.title,
-            artist: track.artist,
-            image: track.image,
-            audioUrl: track.audioUrl,
-            source: 'Bandcamp',
-            id: track.id
+            title: track.title, artist: track.artist,
+            image: track.image, audioUrl: track.audioUrl,
+            source: 'Bandcamp', id: track.id
         }));
 
-        // Combine all results
+        // Combine everything!
         const combinedResults = [
-            ...jamendoTracks, 
-            ...youtubeTracks, 
-            ...audiusTracks, 
-            ...soundcloudTracks, 
-            ...deezerTracks,
-            ...tubidyTracks,
-            ...jiosaavnTracks,
-            ...bandcampTracks
+            ...jamendoTracks, ...youtubeTracks, ...audiusTracks, ...soundcloudTracks, 
+            ...deezerTracks, ...tubidyTracks, ...jiosaavnTracks, ...bandcampTracks
         ];
         
         displayResults(combinedResults);
@@ -148,7 +112,6 @@ async function searchAllSources(searchQuery) {
     }
 }
 
-// ... displayResults and playTrack functions remain the same ...
 function displayResults(tracks) {
     resultsContainer.innerHTML = '';
     if (tracks.length === 0) {
@@ -177,10 +140,7 @@ function displayResults(tracks) {
 }
 
 function playTrack(url) {
-    if (!url) {
-        console.error("No audio URL provided for this track.");
-        return;
-    }
+    if (!url) return;
     audioPlayer.src = url;
-    audioPlayer.play().catch(err => console.log("Stream play request blocked or context shifted:", err));
+    audioPlayer.play().catch(err => console.log("Stream blocked:", err));
 }

@@ -46,7 +46,9 @@ class DownloadStore(
     private val _state = MutableStateFlow(DownloadsState(downloaded = loadIndex()))
     val state: StateFlow<DownloadsState> = _state.asStateFlow()
 
-    fun fileFor(trackId: String): File? = File(dir, "$trackId.mp3").takeIf { it.exists() && it.length() > 0 }
+    private fun fileName(trackId: String) = trackId.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".mp3"
+
+    fun fileFor(trackId: String): File? = File(dir, fileName(trackId)).takeIf { it.exists() && it.length() > 0 }
 
     /** Queues the songs that aren't saved yet. Returns false if blocked by the Wi-Fi only setting. */
     fun download(tracks: List<Track>): Boolean {
@@ -72,7 +74,7 @@ class DownloadStore(
     }
 
     fun remove(trackIds: Collection<String>) {
-        trackIds.forEach { File(dir, "$it.mp3").delete() }
+        trackIds.forEach { File(dir, fileName(it)).delete() }
         _state.update { s -> s.copy(downloaded = s.downloaded.filterNot { it.id in trackIds }) }
         io.launch { saveIndex() }
     }
@@ -82,14 +84,14 @@ class DownloadStore(
     fun bytesUsed(): Long = dir.listFiles()?.filter { it.extension == "mp3" }?.sumOf { it.length() } ?: 0L
 
     private fun fetch(track: Track) {
-        val request = Request.Builder().url(AudiusApi.streamUrl(track.id)).build()
-        val tmp = File(dir, "${track.id}.part")
+        val request = Request.Builder().url(track.streamUrl ?: AudiusApi.streamUrl(track.id)).build()
+        val tmp = File(dir, fileName(track.id) + ".part")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty body")
             tmp.outputStream().use { out -> body.byteStream().copyTo(out) }
         }
-        if (!tmp.renameTo(File(dir, "${track.id}.mp3"))) throw IOException("Couldn't save file")
+        if (!tmp.renameTo(File(dir, fileName(track.id)))) throw IOException("Couldn't save file")
     }
 
     @Synchronized
@@ -99,7 +101,7 @@ class DownloadStore(
 
     private fun loadIndex(): List<Track> = runCatching {
         json.decodeFromString<List<Track>>(index.readText())
-    }.getOrDefault(emptyList()).filter { File(dir, "${it.id}.mp3").exists() }
+    }.getOrDefault(emptyList()).filter { File(dir, fileName(it.id)).exists() }
 
     private fun isOnCellular(): Boolean {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false

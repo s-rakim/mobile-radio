@@ -66,6 +66,7 @@ import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApp
 import com.srakim.spitify.ui.LocalBottomInset
 import com.srakim.spitify.ui.LocalDownloads
+import com.srakim.spitify.ui.LocalJamendo
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
@@ -158,6 +159,17 @@ fun SettingsScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
 
     var editingName by remember { mutableStateOf(false) }
+    var editingJamendo by remember { mutableStateOf(false) }
+    val jamendo = LocalJamendo.current
+    var jamendoStatus by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(settings.jamendoEnabled, settings.jamendoClientId) {
+        jamendoStatus = if (!settings.jamendoEnabled) {
+            "Off"
+        } else {
+            jamendoStatus = "Checking…"
+            jamendo.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
+        }
+    }
     var volumePicker by remember { mutableStateOf(false) }
     var confirmClearDownloads by remember { mutableStateOf(false) }
     var storageTick by remember { mutableIntStateOf(0) }
@@ -243,6 +255,23 @@ fun SettingsScreen() {
             SettingRow("Sleep timer", playback.sleepTimerEndsAt?.let { "On" } ?: "Set it from the player's menu")
         }
 
+        group("Music sources")
+        item { SettingRow("Audius", "Always on. The main catalogue.") }
+        item {
+            ToggleRow(
+                "Jamendo",
+                "Adds Creative Commons music to search, artist pages and Home. ${jamendoStatus.orEmpty()}",
+                settings.jamendoEnabled,
+            ) { v -> set { it.copy(jamendoEnabled = v) } }
+        }
+        item {
+            SettingRow(
+                "Jamendo client ID",
+                settings.jamendoClientId.ifBlank { "Built-in" } + ". Get your own free one at devportal.jamendo.com",
+                onClick = { editingJamendo = true },
+            )
+        }
+
         group("Audio quality")
         item {
             SettingRow("Volume level", "${settings.volumeLevel.label}. ${settings.volumeLevel.description}", onClick = { volumePicker = true })
@@ -313,7 +342,7 @@ fun SettingsScreen() {
 
         group("About")
         item { SettingRow("Version", BuildConfig.VERSION_NAME) }
-        item { SettingRow("Music catalogue", "Songs, artists and playlists come from Audius, an open music platform.") }
+        item { SettingRow("Music catalogue", "Songs, artists and playlists come from Audius, an open music platform, and Jamendo's Creative Commons library.") }
         item { SettingRow("Lyrics", "Provided by LRCLIB, a free community lyrics database.") }
         item { SettingRow("Made by", "Malcolm (s-rakim)") }
         item {
@@ -348,6 +377,38 @@ fun SettingsScreen() {
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingJamendo) {
+        var id by remember { mutableStateOf(settings.jamendoClientId) }
+        AlertDialog(
+            onDismissRequest = { editingJamendo = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Jamendo client ID") },
+            text = {
+                Column {
+                    Text(
+                        "Sign up at devportal.jamendo.com, create an app and paste its client ID here. Leave it empty to use the built-in one.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = id,
+                        onValueChange = { id = it.trim().take(64) },
+                        singleLine = true,
+                        placeholder = { Text("e.g. 1a2b3c4d") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SpitifyColors.Accent, cursorColor = SpitifyColors.Accent),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(jamendoClientId = id) }
+                    editingJamendo = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingJamendo = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 

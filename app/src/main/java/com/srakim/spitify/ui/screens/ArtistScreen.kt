@@ -52,6 +52,8 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalJamendo
+import com.srakim.spitify.data.JamendoApi
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
@@ -70,6 +72,7 @@ import kotlinx.coroutines.coroutineScope
 @Composable
 fun ArtistScreen(id: String) {
     val api = LocalApi.current
+    val jamendo = LocalJamendo.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -82,8 +85,9 @@ fun ArtistScreen(id: String) {
 
     val load = rememberLoad("artist", id) {
         coroutineScope {
-            val info = async { api.artist(id) }
-            val tracks = async { api.artistTracks(id) }
+            val fromJamendo = JamendoApi.isJamendo(id)
+            val info = async { if (fromJamendo) jamendo.artist(id) else api.artist(id) }
+            val tracks = async { if (fromJamendo) jamendo.artistTracks(id) else api.artistTracks(id) }
             info.await() to tracks.await()
         }
     }
@@ -138,7 +142,7 @@ fun ArtistScreen(id: String) {
                 is Load.Ready -> {
                     item {
                         Text(
-                            "${formatCount(artist?.followers ?: 0)} followers",
+                            if (JamendoApi.isJamendo(id)) "Jamendo artist" else "${formatCount(artist?.followers ?: 0)} followers",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
@@ -201,7 +205,10 @@ fun ArtistScreen(id: String) {
                                 Artwork(artist.pictureLarge, Modifier.fillMaxWidth().height(220.dp), RoundedCornerShape(0.dp), fallback = Icons.Rounded.Person)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("${formatCount(artist.followers)} followers", style = MaterialTheme.typography.titleMedium)
-                                    Text("${artist.trackCount} tracks on Audius", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        if (JamendoApi.isJamendo(artist.id)) "On Jamendo" else "${artist.trackCount} tracks on Audius",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                     artist.bio?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = SpitifyColors.TextSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis) }
                                 }
                             }

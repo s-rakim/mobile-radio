@@ -297,9 +297,13 @@ class PlayerController(
     )
 }
 
+fun Track.remoteUri(): Uri = Uri.parse(streamUrl ?: AudiusApi.streamUrl(id))
+
 fun Track.toMediaItem(localFile: File? = null): MediaItem = MediaItem.Builder()
     .setMediaId(id)
-    .setUri(localFile?.let(Uri::fromFile) ?: Uri.parse(AudiusApi.streamUrl(id)))
+    .setUri(localFile?.let(Uri::fromFile) ?: remoteUri())
+    // The URI itself doesn't survive the trip to the playback service, request metadata does.
+    .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(remoteUri()).build())
     .setMediaMetadata(
         MediaMetadata.Builder()
             .setTitle(title)

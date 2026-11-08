@@ -142,8 +142,10 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<MutableList<MediaItem>> {
             val resolved = mediaItems.map { item ->
                 val local = downloads.fileFor(item.mediaId)
+                val requested = item.requestMetadata.mediaUri
                 when {
                     local != null -> item.buildUpon().setUri(Uri.fromFile(local)).build()
+                    requested != null -> item.buildUpon().setUri(requested).build()
                     item.localConfiguration != null -> item
                     else -> item.buildUpon().setUri(AudiusApi.streamUrl(item.mediaId)).build()
                 }

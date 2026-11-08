@@ -70,6 +70,7 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalJamendo
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
@@ -172,6 +173,7 @@ private data class SearchResults(val tracks: List<Track>, val artists: List<Arti
 @Composable
 fun SearchInputScreen() {
     val api = LocalApi.current
+    val jamendo = LocalJamendo.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -198,7 +200,10 @@ fun SearchInputScreen() {
                 val t = async { api.searchTracks(debounced) }
                 val a = async { api.searchArtists(debounced) }
                 val p = async { api.searchPlaylists(debounced) }
-                SearchResults(t.await(), a.await(), p.await())
+                // Jamendo is a bonus: if it's off or its key is rejected, Audius results still show.
+                val jt = async { runCatching { jamendo.searchTracks(debounced) }.getOrDefault(emptyList()) }
+                val ja = async { if (jamendo.enabled) runCatching { jamendo.searchArtists(debounced) }.getOrDefault(emptyList()) else emptyList() }
+                SearchResults(interleave(t.await(), jt.await()), interleave(a.await(), ja.await()), p.await())
             }
         }
     }
@@ -338,6 +343,17 @@ fun SearchInputScreen() {
             }
         }
     }
+}
+
+/** Alternates two result lists so neither catalogue buries the other. */
+private fun <T> interleave(first: List<T>, second: List<T>): List<T> {
+    val out = ArrayList<T>(first.size + second.size)
+    val max = maxOf(first.size, second.size)
+    for (i in 0 until max) {
+        first.getOrNull(i)?.let(out::add)
+        second.getOrNull(i)?.let(out::add)
+    }
+    return out
 }
 
 @Composable

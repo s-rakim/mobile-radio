@@ -14,7 +14,11 @@ data class Track(
     val durationSec: Int = 0,
     val genre: String? = null,
     val link: String? = null,
-)
+    /** Direct audio URL for catalogues that hand one out (Jamendo). Audius builds it from the id. */
+    val streamUrl: String? = null,
+) {
+    val source: String get() = if (id.startsWith(JamendoApi.ID_PREFIX)) "Jamendo" else "Audius"
+}
 
 @Serializable
 data class Playlist(

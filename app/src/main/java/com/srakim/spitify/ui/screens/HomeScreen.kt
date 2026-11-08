@@ -42,6 +42,7 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalJamendo
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
@@ -89,6 +90,10 @@ fun HomeScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(HomeFilter.ALL) }
+    val jamendo = LocalJamendo.current
+    val freePicks = rememberLoad("jamendo-popular", settings.jamendoEnabled, settings.jamendoClientId) {
+        runCatching { jamendo.popularTracks() }.getOrDefault(emptyList())
+    }
 
     val feed = rememberLoad("home") {
         coroutineScope {
@@ -178,6 +183,13 @@ fun HomeScreen() {
                     item {
                         SectionHeader("Trending this week")
                         TrackShelf(data.trending, PlayContext("trending-week", "Trending this week", "TRENDING"), playback.current?.id)
+                    }
+                }
+                val picks = (freePicks.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && picks.isNotEmpty()) {
+                    item {
+                        SectionHeader("Free picks from Jamendo")
+                        TrackShelf(picks, PlayContext("jamendo-popular", "Free picks from Jamendo", "JAMENDO"), playback.current?.id)
                     }
                 }
                 if (showPlaylists && data.playlists.isNotEmpty()) {

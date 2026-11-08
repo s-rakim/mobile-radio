@@ -5,6 +5,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.DownloadStore
+import com.srakim.spitify.data.JamendoApi
 import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.LyricsApi
 import com.srakim.spitify.data.SettingsStore
@@ -27,6 +28,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
 
     val api: AudiusApi by lazy { AudiusApi(httpClient) }
     val lyrics: LyricsApi by lazy { LyricsApi(httpClient) }
+    val jamendo: JamendoApi by lazy { JamendoApi(httpClient, settings) }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }

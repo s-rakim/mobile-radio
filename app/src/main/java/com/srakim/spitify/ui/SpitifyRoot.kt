@@ -128,6 +128,7 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalDownloads provides app.downloads,
         LocalThemes provides app.themes,
         LocalLyrics provides app.lyrics,
+        LocalJamendo provides app.jamendo,
         LocalActions provides actions,
         LocalDataSaver provides settings.dataSaver,
         LocalBottomInset provides if (playback.current != null) 150.dp else 86.dp,

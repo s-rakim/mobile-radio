@@ -30,6 +30,9 @@ data class AppSettings(
     val dataSaver: Boolean = false,
     val downloadOnCellular: Boolean = false,
     val showLyrics: Boolean = true,
+    val jamendoEnabled: Boolean = true,
+    /** Blank means use the built-in id. */
+    val jamendoClientId: String = "",
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

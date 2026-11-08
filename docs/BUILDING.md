@@ -31,21 +31,37 @@ The version code is the run number, so every release can install over the previo
 
 ## Signing
 
-Out of the box, release builds are signed with the shared dev key in `keystore/spitify-dev.jks`. That key is public on purpose: it lets anyone build an APK that updates the one from CI without uninstalling first. It isn't suitable for a Play Store release.
+No signing key is kept in the repo. `keystore/` and `*.jks` are in `.gitignore`, so a key can't be committed by accident.
 
-To sign with your own private key instead:
+### CI
 
-1. Make a keystore:
+CI signs release builds with a key stored in the repo's Actions secrets. Set it up once:
+
+1. Make a keystore on your own machine and keep it somewhere safe, outside the repo:
    ```bash
    keytool -genkeypair -v -keystore spitify-release.jks -alias spitify \
      -keyalg RSA -keysize 2048 -validity 10000
    ```
 2. In the repo's Settings → Secrets and variables → Actions, add:
-   - `SPITIFY_KEYSTORE_BASE64`: output of `base64 -w0 spitify-release.jks`
+   - `SPITIFY_KEYSTORE_BASE64`: output of `base64 -w0 spitify-release.jks` (on macOS, `base64 -i spitify-release.jks`)
    - `SPITIFY_KEYSTORE_PASSWORD`
-   - `SPITIFY_KEY_ALIAS`
+   - `SPITIFY_KEY_ALIAS` (`spitify` if you used the command above)
    - `SPITIFY_KEY_PASSWORD`
 
-CI picks the private key up automatically. Locally, point the `SPITIFY_KEYSTORE` environment variable at the file and set the same three password variables.
+Without these secrets the build still runs, but it signs with a key made for that one run and leaves a warning on the run. That APK installs fine on a phone that doesn't have Spitify yet, but it can't update an existing install.
 
-Switching keys means phones with the old build have to uninstall before installing the new one, since Android won't let a different key update an app.
+Back up the keystore and its passwords. If you lose them, every phone has to uninstall before it can take a new build.
+
+### Local builds
+
+`assembleRelease` signs with the debug key unless you point it at your keystore:
+
+```bash
+export SPITIFY_KEYSTORE=/path/to/spitify-release.jks
+export SPITIFY_KEYSTORE_PASSWORD=...
+export SPITIFY_KEY_ALIAS=spitify
+export SPITIFY_KEY_PASSWORD=...
+./gradlew assembleRelease
+```
+
+Switching keys means phones with the old build have to uninstall before installing the new one, since Android won't let a different key update an app. Builds up to v1.0.31 used the old shared dev key, so moving to your own key needs that one uninstall.

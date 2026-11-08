@@ -42,7 +42,7 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
-import com.srakim.spitify.ui.LocalJamendo
+import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
@@ -90,9 +90,21 @@ fun HomeScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(HomeFilter.ALL) }
-    val jamendo = LocalJamendo.current
+    val catalog = LocalCatalog.current
     val freePicks = rememberLoad("jamendo-popular", settings.jamendoEnabled, settings.jamendoClientId) {
-        runCatching { jamendo.popularTracks() }.getOrDefault(emptyList())
+        runCatching { catalog.jamendo.popularTracks() }.getOrDefault(emptyList())
+    }
+    val netlabels = rememberLoad("ia-netlabels", settings.archiveEnabled) {
+        runCatching { catalog.archive.popularNetlabelAlbums() }.getOrDefault(emptyList())
+    }
+    val liveShows = rememberLoad("ia-live", settings.archiveEnabled) {
+        runCatching { catalog.archive.popularLiveAlbums() }.getOrDefault(emptyList())
+    }
+    val remixes = rememberLoad("cc-popular", settings.ccMixterEnabled) {
+        runCatching { catalog.ccMixter.popularTracks() }.getOrDefault(emptyList())
+    }
+    val serverAlbums = rememberLoad("server-albums", settings.subsonicUrl, settings.subsonicUser, settings.subsonicPassword, settings.subsonicEnabled) {
+        if (catalog.server.enabled) runCatching { catalog.server.recentAlbums() }.getOrDefault(emptyList()) else emptyList()
     }
 
     val feed = rememberLoad("home") {
@@ -185,11 +197,32 @@ fun HomeScreen() {
                         TrackShelf(data.trending, PlayContext("trending-week", "Trending this week", "TRENDING"), playback.current?.id)
                     }
                 }
+                val mine = (serverAlbums.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && mine.isNotEmpty()) {
+                    item {
+                        SectionHeader("New on your server", action = "Show all", onAction = actions::openServer)
+                        AlbumShelf(mine)
+                    }
+                }
                 val picks = (freePicks.state as? Load.Ready)?.data.orEmpty()
                 if (showMusic && picks.isNotEmpty()) {
                     item {
                         SectionHeader("Free picks from Jamendo")
                         TrackShelf(picks, PlayContext("jamendo-popular", "Free picks from Jamendo", "JAMENDO"), playback.current?.id)
+                    }
+                }
+                val labelAlbums = (netlabels.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && labelAlbums.isNotEmpty()) {
+                    item {
+                        SectionHeader("Netlabel albums")
+                        AlbumShelf(labelAlbums)
+                    }
+                }
+                val ccPicks = (remixes.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && ccPicks.isNotEmpty()) {
+                    item {
+                        SectionHeader("Remixes from ccMixter")
+                        TrackShelf(ccPicks, PlayContext("cc-popular", "Remixes from ccMixter", "CCMIXTER"), playback.current?.id)
                     }
                 }
                 if (showPlaylists && data.playlists.isNotEmpty()) {
@@ -222,6 +255,13 @@ fun HomeScreen() {
                         TrackShelf(data.allTime, PlayContext("trending-all", "All-time greats", "CHART"), playback.current?.id)
                     }
                 }
+                val live = (liveShows.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && live.isNotEmpty()) {
+                    item {
+                        SectionHeader("Live concert recordings")
+                        AlbumShelf(live)
+                    }
+                }
                 if (showPlaylists && lib.savedPlaylists.isNotEmpty()) {
                     item {
                         SectionHeader("Your saved playlists")
@@ -233,6 +273,17 @@ fun HomeScreen() {
                     }
                 }
             }
+        }
+    }
+}
+
+/** A horizontal row of albums. */
+@Composable
+private fun AlbumShelf(albums: List<Playlist>) {
+    val actions = LocalActions.current
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        items(albums, key = { it.id }) { album ->
+            MediaCard(album.name, album.owner, onClick = { actions.openPlaylist(album.id) }, image = album.artwork)
         }
     }
 }

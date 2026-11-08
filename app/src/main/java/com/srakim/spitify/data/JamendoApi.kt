@@ -25,9 +25,10 @@ class JamendoApi(private val client: OkHttpClient, private val settings: Setting
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
     private val cache = ConcurrentHashMap<String, Pair<Long, String>>()
 
-    val enabled: Boolean get() = settings.current.jamendoEnabled
+    /** Off until someone pastes their own client id: there is no shared key that works. */
+    val enabled: Boolean get() = settings.current.jamendoEnabled && clientId.isNotBlank()
 
-    private val clientId: String get() = settings.current.jamendoClientId.trim().ifBlank { DEFAULT_CLIENT_ID }
+    private val clientId: String get() = settings.current.jamendoClientId.trim()
 
     suspend fun searchTracks(query: String): List<Track> =
         tracks(mapOf("search" to query, "limit" to "20", "order" to "relevance"))
@@ -39,13 +40,14 @@ class JamendoApi(private val client: OkHttpClient, private val settings: Setting
         get("/artists/", mapOf("namesearch" to query, "limit" to "10")).decodeAll<JmArtist>().map { it.toArtist() }
 
     suspend fun artist(id: String): Artist? =
-        get("/artists/", mapOf("id" to id.removePrefix(ID_PREFIX))).decodeAll<JmArtist>().firstOrNull()?.toArtist()
+        if (!enabled) null else get("/artists/", mapOf("id" to id.removePrefix(ID_PREFIX))).decodeAll<JmArtist>().firstOrNull()?.toArtist()
 
     suspend fun artistTracks(id: String): List<Track> =
         tracks(mapOf("artist_id" to id.removePrefix(ID_PREFIX), "order" to "popularity_total", "limit" to "50"))
 
     /** Quick check used by Settings to tell the listener whether their client id works. */
     suspend fun verify(): Result<Unit> = runCatching {
+        if (clientId.isBlank()) throw IOException("No client ID yet")
         get("/tracks/", mapOf("limit" to "1"), useCache = false)
         Unit
     }
@@ -86,7 +88,6 @@ class JamendoApi(private val client: OkHttpClient, private val settings: Setting
 
     companion object {
         const val ID_PREFIX = "jm:"
-        const val DEFAULT_CLIENT_ID = "56d30c55"
         private const val BASE_URL = "https://api.jamendo.com/v3.0"
         private const val CACHE_TTL_MS = 5 * 60 * 1000L
 

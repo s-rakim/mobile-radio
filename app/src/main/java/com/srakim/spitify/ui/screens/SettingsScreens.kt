@@ -2,6 +2,10 @@ package com.srakim.spitify.ui.screens
 
 import android.content.Intent
 import android.media.audiofx.AudioEffect
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.srakim.spitify.data.AppIcon
+import com.srakim.spitify.data.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,7 +70,14 @@ import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApp
 import com.srakim.spitify.ui.LocalBottomInset
 import com.srakim.spitify.ui.LocalDownloads
-import com.srakim.spitify.ui.LocalJamendo
+import com.srakim.spitify.ui.LocalCatalog
+import com.srakim.spitify.data.LocalMusic
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import kotlinx.coroutines.launch
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
@@ -160,15 +171,40 @@ fun SettingsScreen() {
 
     var editingName by remember { mutableStateOf(false) }
     var editingJamendo by remember { mutableStateOf(false) }
-    val jamendo = LocalJamendo.current
+    var editingSoundCloud by remember { mutableStateOf(false) }
+    var editingServer by remember { mutableStateOf(false) }
+    val catalog = LocalCatalog.current
+    val scope = rememberCoroutineScope()
     var jamendoStatus by remember { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(settings.jamendoEnabled, settings.jamendoClientId) {
-        jamendoStatus = if (!settings.jamendoEnabled) {
-            "Off"
-        } else {
-            jamendoStatus = "Checking…"
-            jamendo.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
+        jamendoStatus = when {
+            settings.jamendoClientId.isBlank() -> null
+            !settings.jamendoEnabled -> "Off"
+            else -> {
+                jamendoStatus = "Checking…"
+                catalog.jamendo.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
+            }
         }
+    }
+    var soundCloudStatus by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(settings.soundCloudClientId, settings.soundCloudClientSecret) {
+        soundCloudStatus = if (!catalog.soundCloud.enabled) null else {
+            soundCloudStatus = "Checking…"
+            catalog.soundCloud.verify().fold({ "Connected" }, { "Not working: ${it.message}" })
+        }
+    }
+    var serverStatus by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(settings.subsonicUrl, settings.subsonicUser, settings.subsonicPassword, settings.subsonicEnabled) {
+        serverStatus = if (!catalog.server.enabled) null else {
+            serverStatus = "Checking…"
+            catalog.server.ping().fold({ "Connected" }, { "Not working: ${it.message}" })
+        }
+    }
+    val localTracks by catalog.local.tracks.collectAsStateWithLifecycle()
+    var localGranted by remember { mutableStateOf(catalog.local.hasPermission()) }
+    val askLocal = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        localGranted = ok
+        if (ok) scope.launch { catalog.local.refresh() } else actions.toast("Spitify can't see your music without that permission")
     }
     var volumePicker by remember { mutableStateOf(false) }
     var confirmClearDownloads by remember { mutableStateOf(false) }
@@ -206,6 +242,7 @@ fun SettingsScreen() {
         }
 
         group("Content and display")
+        item { AppIconPicker() }
         item {
             SettingRow("Theme", SpitifyColors.palette.name, onClick = actions::openThemes) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -256,20 +293,77 @@ fun SettingsScreen() {
         }
 
         group("Music sources")
-        item { SettingRow("Audius", "Always on. The main catalogue.") }
+        item { SettingRow("Audius", "Always on. Independent artists, and the biggest catalogue here.") }
         item {
             ToggleRow(
-                "Jamendo",
-                "Adds Creative Commons music to search, artist pages and Home. ${jamendoStatus.orEmpty()}",
-                settings.jamendoEnabled,
-            ) { v -> set { it.copy(jamendoEnabled = v) } }
+                "Internet Archive",
+                "Netlabel albums and live concert recordings that artists allow to be shared.",
+                settings.archiveEnabled,
+            ) { v -> set { it.copy(archiveEnabled = v) } }
+        }
+        item {
+            ToggleRow("ccMixter", "Creative Commons remixes and originals.", settings.ccMixterEnabled) { v -> set { it.copy(ccMixterEnabled = v) } }
+        }
+        item {
+            SettingRow(
+                "Your server",
+                when {
+                    settings.subsonicUrl.isBlank() -> "Play your own collection from Navidrome or any Subsonic server."
+                    else -> settings.subsonicUrl + (serverStatus?.let { ". $it" } ?: "")
+                },
+                onClick = { editingServer = true },
+            )
+        }
+        if (settings.subsonicUrl.isNotBlank()) {
+            item {
+                ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
+            }
+        }
+        if (settings.jamendoClientId.isNotBlank()) {
+            item {
+                ToggleRow(
+                    "Jamendo",
+                    "Creative Commons music in search, artist pages and Home. ${jamendoStatus.orEmpty()}",
+                    settings.jamendoEnabled,
+                ) { v -> set { it.copy(jamendoEnabled = v) } }
+            }
         }
         item {
             SettingRow(
                 "Jamendo client ID",
-                settings.jamendoClientId.ifBlank { "Built-in" } + ". Get your own free one at devportal.jamendo.com",
+                settings.jamendoClientId.ifBlank { "Optional. Jamendo stays off until you add one." },
                 onClick = { editingJamendo = true },
             )
+        }
+        item {
+            SettingRow(
+                "SoundCloud",
+                if (settings.soundCloudClientId.isBlank()) {
+                    "Optional. Needs your own app keys from soundcloud.com/you/apps."
+                } else {
+                    "App keys added. ${soundCloudStatus.orEmpty()}"
+                },
+                onClick = { editingSoundCloud = true },
+            )
+        }
+
+        group("Local files")
+        item {
+            ToggleRow(
+                "Show audio files from this device",
+                when {
+                    !settings.showLocalFiles -> "Off"
+                    !localGranted -> "Tap to let Spitify see the music on your phone."
+                    else -> "${localTracks.size} songs found. They show up in Your Library and Search."
+                },
+                settings.showLocalFiles,
+            ) { v ->
+                set { it.copy(showLocalFiles = v) }
+                if (v && !catalog.local.hasPermission()) askLocal.launch(LocalMusic.PERMISSION)
+            }
+        }
+        if (settings.showLocalFiles && localGranted) {
+            item { SettingRow("Scan again", "Look for songs added since the last scan.", onClick = { scope.launch { catalog.local.refresh() } }) }
         }
 
         group("Audio quality")
@@ -342,7 +436,13 @@ fun SettingsScreen() {
 
         group("About")
         item { SettingRow("Version", BuildConfig.VERSION_NAME) }
-        item { SettingRow("Music catalogue", "Songs, artists and playlists come from Audius, an open music platform, and Jamendo's Creative Commons library.") }
+        item {
+            SettingRow(
+                "Music catalogue",
+                "Songs come from Audius, the Internet Archive's netlabel and live music collections, ccMixter, " +
+                    "and, if you set them up, your own server, Jamendo and SoundCloud. Plus anything saved on your phone.",
+            )
+        }
         item { SettingRow("Lyrics", "Provided by LRCLIB, a free community lyrics database.") }
         item { SettingRow("Made by", "Malcolm (s-rakim)") }
         item {
@@ -389,7 +489,7 @@ fun SettingsScreen() {
             text = {
                 Column {
                     Text(
-                        "Sign up at devportal.jamendo.com, create an app and paste its client ID here. Leave it empty to use the built-in one.",
+                        "Sign up at devportal.jamendo.com, create an app and paste its client ID here. Leave it empty to keep Jamendo off.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(12.dp))
@@ -409,6 +509,68 @@ fun SettingsScreen() {
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingJamendo = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingSoundCloud) {
+        var id by remember { mutableStateOf(settings.soundCloudClientId) }
+        var secret by remember { mutableStateOf(settings.soundCloudClientSecret) }
+        AlertDialog(
+            onDismissRequest = { editingSoundCloud = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("SoundCloud app keys") },
+            text = {
+                Column {
+                    Text(
+                        "Register an app at soundcloud.com/you/apps and paste its client ID and secret. " +
+                            "Spitify only plays tracks SoundCloud marks as playable and never downloads them. Leave both empty to keep SoundCloud off.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(id, { id = it.trim() }, "Client ID")
+                    Spacer(Modifier.height(8.dp))
+                    DialogField(secret, { secret = it.trim() }, "Client secret", secret = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(soundCloudClientId = id, soundCloudClientSecret = secret) }
+                    editingSoundCloud = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingSoundCloud = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingServer) {
+        var url by remember { mutableStateOf(settings.subsonicUrl) }
+        var user by remember { mutableStateOf(settings.subsonicUser) }
+        var password by remember { mutableStateOf(settings.subsonicPassword) }
+        AlertDialog(
+            onDismissRequest = { editingServer = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Your server") },
+            text = {
+                Column {
+                    Text(
+                        "The address of your Navidrome or Subsonic server, like http://192.168.1.20:4533 or your Tailscale name, plus your login.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(url, { url = it.trim() }, "Server address")
+                    Spacer(Modifier.height(8.dp))
+                    DialogField(user, { user = it.trim() }, "Username")
+                    Spacer(Modifier.height(8.dp))
+                    DialogField(password, { password = it }, "Password", secret = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(subsonicUrl = url, subsonicUser = user, subsonicPassword = password, subsonicEnabled = true) }
+                    editingServer = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingServer = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 
@@ -461,6 +623,70 @@ fun SettingsScreen() {
             },
             dismissButton = { TextButton(onClick = { confirmClearDownloads = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
+    }
+}
+
+@Composable
+private fun DialogField(value: String, onChange: (String) -> Unit, label: String, secret: Boolean = false) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        singleLine = true,
+        label = { Text(label) },
+        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = SpitifyColors.Accent,
+            cursorColor = SpitifyColors.Accent,
+            focusedLabelColor = SpitifyColors.Accent,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun AppIconPicker() {
+    val context = LocalContext.current
+    val actions = LocalActions.current
+    var selected by remember { mutableStateOf(AppIcons.current(context)) }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("App icon", style = MaterialTheme.typography.bodyLarge)
+        Text("Pick the icon on your home screen. Your launcher may take a moment to update.", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AppIcon.entries.forEach { icon ->
+                val isSelected = icon == selected
+                Column(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (!isSelected) {
+                                AppIcons.select(context, icon)
+                                selected = icon
+                                actions.toast("App icon changed to ${icon.label}")
+                            }
+                        }
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFFFFF4DC))
+                            .then(if (isSelected) Modifier.border(3.dp, SpitifyColors.Accent, RoundedCornerShape(18.dp)) else Modifier),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(icon.preview),
+                            contentDescription = "${icon.label} icon",
+                            modifier = Modifier.size(60.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(icon.label, style = MaterialTheme.typography.labelMedium, color = if (isSelected) SpitifyColors.Accent else SpitifyColors.TextPrimary)
+                }
+            }
+        }
     }
 }
 

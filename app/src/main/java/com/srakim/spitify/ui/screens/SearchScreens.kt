@@ -65,12 +65,13 @@ import com.srakim.spitify.data.Artist
 import com.srakim.spitify.data.Genres
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.Playlist
+import com.srakim.spitify.data.SearchResults
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
-import com.srakim.spitify.ui.LocalJamendo
+import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
@@ -84,8 +85,6 @@ import com.srakim.spitify.ui.components.SkeletonTrackList
 import com.srakim.spitify.ui.components.TrackRow
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.theme.SpitifyColors
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 
 /** The Search tab: a search box that opens the real search, and genre tiles to browse. */
@@ -163,17 +162,12 @@ private fun GenreTile(name: String, color: Color, onClick: () -> Unit) {
     }
 }
 
-private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"), ARTISTS("Artists"), PLAYLISTS("Playlists") }
-
-private data class SearchResults(val tracks: List<Track>, val artists: List<Artist>, val playlists: List<Playlist>) {
-    val isEmpty get() = tracks.isEmpty() && artists.isEmpty() && playlists.isEmpty()
-}
+private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"), ARTISTS("Artists"), PLAYLISTS("Albums & playlists") }
 
 /** The focused search page with live results, filters and recent searches. */
 @Composable
 fun SearchInputScreen() {
-    val api = LocalApi.current
-    val jamendo = LocalJamendo.current
+    val catalog = LocalCatalog.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -192,21 +186,7 @@ fun SearchInputScreen() {
         debounced = query.trim()
     }
 
-    val results = rememberLoad("search", debounced) {
-        if (debounced.isBlank()) {
-            SearchResults(emptyList(), emptyList(), emptyList())
-        } else {
-            coroutineScope {
-                val t = async { api.searchTracks(debounced) }
-                val a = async { api.searchArtists(debounced) }
-                val p = async { api.searchPlaylists(debounced) }
-                // Jamendo is a bonus: if it's off or its key is rejected, Audius results still show.
-                val jt = async { runCatching { jamendo.searchTracks(debounced) }.getOrDefault(emptyList()) }
-                val ja = async { if (jamendo.enabled) runCatching { jamendo.searchArtists(debounced) }.getOrDefault(emptyList()) else emptyList() }
-                SearchResults(interleave(t.await(), jt.await()), interleave(a.await(), ja.await()), p.await())
-            }
-        }
-    }
+    val results = rememberLoad("search", debounced) { catalog.search(debounced) }
 
     fun saveQuery() = library.addRecentSearch(query)
 
@@ -303,7 +283,7 @@ fun SearchInputScreen() {
                                     SectionHeader("Playlists")
                                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                         items(data.playlists, key = { it.id }) { p ->
-                                            MediaCard(p.name, "By ${p.owner}", onClick = { saveQuery(); actions.openPlaylist(p.id) }, image = p.artwork, width = 140.dp)
+                                            MediaCard(p.name, "${p.label} • ${p.owner}", onClick = { saveQuery(); actions.openPlaylist(p.id) }, image = p.artwork, width = 140.dp)
                                         }
                                     }
                                 }
@@ -334,7 +314,7 @@ fun SearchInputScreen() {
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(p.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("Playlist • ${p.owner}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                    Text("${p.label} • ${p.owner}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                 }
                             }
                         }
@@ -343,17 +323,6 @@ fun SearchInputScreen() {
             }
         }
     }
-}
-
-/** Alternates two result lists so neither catalogue buries the other. */
-private fun <T> interleave(first: List<T>, second: List<T>): List<T> {
-    val out = ArrayList<T>(first.size + second.size)
-    val max = maxOf(first.size, second.size)
-    for (i in 0 until max) {
-        first.getOrNull(i)?.let(out::add)
-        second.getOrNull(i)?.let(out::add)
-    }
-    return out
 }
 
 @Composable

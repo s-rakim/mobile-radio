@@ -49,6 +49,7 @@ import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
+import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalBottomInset
 import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalLibrary
@@ -108,7 +109,7 @@ private fun metaLine(tracks: List<Track>): String {
 
 @Composable
 fun PlaylistScreen(id: String) {
-    val api = LocalApi.current
+    val catalog = LocalCatalog.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -117,22 +118,16 @@ fun PlaylistScreen(id: String) {
     val playback by player.state.collectAsStateWithLifecycle()
     val likedIds = rememberLikedIds()
 
-    val load = rememberLoad("playlist", id) {
-        coroutineScope {
-            val info = async { api.playlist(id) }
-            val tracks = async { api.playlistTracks(id) }
-            info.await() to tracks.await()
-        }
-    }
+    val load = rememberLoad("playlist", id) { catalog.playlist(id) }
     val playlist = (load.state as? Load.Ready)?.data?.first
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
     val color by rememberArtworkColor(playlist?.artwork)
 
     LaunchedEffect(playlist?.id) {
-        playlist?.let { library.recordVisit(RecentItem(RecentItem.Kind.PLAYLIST, it.id, it.name, "Playlist • ${it.owner}", it.artwork)) }
+        playlist?.let { library.recordVisit(RecentItem(RecentItem.Kind.PLAYLIST, it.id, it.name, "${it.label} • ${it.owner}", it.artwork)) }
     }
 
-    val ctx = PlayContext("playlist:$id", playlist?.name ?: "Playlist", "PLAYLIST")
+    val ctx = PlayContext("playlist:$id", playlist?.name ?: "Playlist", (playlist?.label ?: "Playlist").uppercase())
     CollectionScaffold(title = playlist?.name.orEmpty(), color = color, header = {
         when (val state = load.state) {
             is Load.Failed -> ErrorState(state.message, load.retry)
@@ -156,7 +151,7 @@ fun PlaylistScreen(id: String) {
                         },
                         extraMenu = { close ->
                             SheetOption(Icons.Rounded.Share, "Share", onClick = {
-                                shareText(context, "${playlist.name} on Spitify\nhttps://audius.co/playlists/${playlist.id}")
+                                shareText(context, "${playlist.name}\n" + (playlist.link ?: "https://audius.co/playlists/${playlist.id}"))
                                 close()
                             })
                         },

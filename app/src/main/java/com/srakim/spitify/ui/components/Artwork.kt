@@ -70,6 +70,17 @@ fun Artwork(
 }
 
 /** The Liked Songs cover: a warm gradient with a heart. */
+/** Generated tile for built-in collections such as Local Files: a gradient with an icon. */
+@Composable
+fun IconArt(icon: ImageVector, top: Color, bottom: Color, modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(4)) {
+    Box(
+        modifier = modifier.clip(shape).background(Brush.linearGradient(listOf(top, bottom))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.fillMaxSize(0.42f))
+    }
+}
+
 @Composable
 fun LikedSongsArt(modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(4)) {
     Box(

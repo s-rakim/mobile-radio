@@ -1,6 +1,6 @@
 # Architecture
 
-Spitify is a single-module Android app written in Kotlin with Jetpack Compose for the UI and Media3 (ExoPlayer) for playback. There's no backend of its own. It talks straight to the public Audius API and keeps everything personal on the device.
+Spitify is a single-module Android app written in Kotlin with Jetpack Compose for the UI and Media3 (ExoPlayer) for playback. The app needs no backend. It talks straight to each music source and keeps everything personal on the device. (The optional Node server in `server/` is a separate web test page, not something the app depends on.)
 
 ```
 app/src/main/java/com/srakim/spitify/
@@ -8,7 +8,15 @@ app/src/main/java/com/srakim/spitify/
 ├── MainActivity.kt        Splash, edge-to-edge, notification permission, sets content
 ├── data/
 │   ├── Models.kt          Track, Playlist, Artist, UserPlaylist, RecentItem, genres
+│   ├── Catalog.kt         One front door for every source: merged search, routing by id prefix
 │   ├── AudiusApi.kt       Catalogue client with a short in-memory cache
+│   ├── ArchiveApi.kt      Internet Archive netlabels and live shows (ia:)
+│   ├── CcMixterApi.kt     ccMixter Creative Commons tracks (cc:)
+│   ├── JamendoApi.kt      Jamendo, only with the listener's own client id (jm:)
+│   ├── SoundCloudApi.kt   Official SoundCloud API, only with the listener's app keys (sc:)
+│   ├── SubsonicApi.kt     Navidrome / Subsonic server with token auth (ss:)
+│   ├── LocalMusic.kt      Songs on the phone, read from MediaStore (local:)
+│   ├── AppIcons.kt        Launcher icon switcher (activity-alias)
 │   ├── LyricsApi.kt       LRCLIB lookup and LRC parsing
 │   ├── LibraryStore.kt    Likes, playlists, follows, history (library.json)
 │   ├── DownloadStore.kt   Offline files and their index
@@ -90,3 +98,12 @@ The full player is an overlay above the nav host rather than a destination, so i
 | Coil | Images |
 | AndroidX Palette | Artwork colours |
 | Core SplashScreen | Launch screen |
+
+## Sources and ids
+
+Every track, album and artist id carries a prefix that says where it came from: none for Audius, then `ia:`, `cc:`, `jm:`, `sc:`, `ss:` and `local:`. `Catalog` uses that prefix to send a detail page to the right client, and `Track.source` uses it for the "On SoundCloud ↗" style credit on the player.
+
+Most sources hand out a plain stream address that goes straight into the `MediaItem`. Two are special. Local files use a `content://` URI, which ExoPlayer's `DefaultDataSource` already reads. SoundCloud stream addresses are signed and expire, so tracks carry a `soundcloud://tracks/<id>` placeholder and a `ResolvingDataSource` in `PlaybackService` swaps it for a fresh address the moment the player starts loading.
+
+See [SOURCES.md](SOURCES.md) for what each source needs and why others were left out.
+

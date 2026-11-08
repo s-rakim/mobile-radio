@@ -162,22 +162,24 @@ fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
             actions.toast("Added to queue")
             onDismiss()
         })
-        SheetOption(
-            if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
-            if (downloaded) "Remove download" else "Download",
-            tint = if (downloaded) SpitifyColors.Accent else SpitifyColors.TextSecondary,
-            onClick = {
-                if (downloaded) {
-                    downloads.remove(listOf(track.id))
-                    actions.toast("Download removed")
-                } else if (downloads.download(listOf(track))) {
-                    actions.toast("Downloading")
-                } else {
-                    actions.toast("Downloads are set to Wi-Fi only")
-                }
-                onDismiss()
-            },
-        )
+        if (track.canDownload) {
+            SheetOption(
+                if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
+                if (downloaded) "Remove download" else "Download",
+                tint = if (downloaded) SpitifyColors.Accent else SpitifyColors.TextSecondary,
+                onClick = {
+                    if (downloaded) {
+                        downloads.remove(listOf(track.id))
+                        actions.toast("Download removed")
+                    } else if (downloads.download(listOf(track))) {
+                        actions.toast("Downloading")
+                    } else {
+                        actions.toast("Downloads are set to Wi-Fi only")
+                    }
+                    onDismiss()
+                },
+            )
+        }
         if (track.artistId.isNotBlank()) {
             SheetOption(Icons.Rounded.Person, "Go to artist", onClick = {
                 onDismiss()

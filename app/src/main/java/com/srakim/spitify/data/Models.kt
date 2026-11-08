@@ -14,10 +14,24 @@ data class Track(
     val durationSec: Int = 0,
     val genre: String? = null,
     val link: String? = null,
-    /** Direct audio URL for catalogues that hand one out (Jamendo). Audius builds it from the id. */
+    /** Direct audio address for sources that hand one out. Audius builds it from the id. */
     val streamUrl: String? = null,
 ) {
-    val source: String get() = if (id.startsWith(JamendoApi.ID_PREFIX)) "Jamendo" else "Audius"
+    val source: String
+        get() = when {
+            id.startsWith(LocalMusic.ID_PREFIX) -> "This device"
+            id.startsWith(SubsonicApi.ID_PREFIX) -> "Your server"
+            id.startsWith(JamendoApi.ID_PREFIX) -> "Jamendo"
+            id.startsWith(ArchiveApi.ID_PREFIX) -> "Internet Archive"
+            id.startsWith(CcMixterApi.ID_PREFIX) -> "ccMixter"
+            id.startsWith(SoundCloudApi.ID_PREFIX) -> "SoundCloud"
+            else -> "Audius"
+        }
+
+    val isLocal: Boolean get() = id.startsWith(LocalMusic.ID_PREFIX)
+
+    /** Songs already on the phone don't need saving, and SoundCloud doesn't allow it. */
+    val canDownload: Boolean get() = !isLocal && !id.startsWith(SoundCloudApi.ID_PREFIX)
 }
 
 @Serializable
@@ -29,6 +43,9 @@ data class Playlist(
     val artwork: String? = null,
     val trackCount: Int = 0,
     val description: String? = null,
+    /** "Playlist", "Album" or "Live album". */
+    val label: String = "Playlist",
+    val link: String? = null,
 )
 
 @Serializable

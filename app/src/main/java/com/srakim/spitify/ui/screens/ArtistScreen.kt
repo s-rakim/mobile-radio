@@ -50,9 +50,9 @@ import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.RecentItem
 import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
-import com.srakim.spitify.ui.LocalApi
+import com.srakim.spitify.ui.LocalCatalog
+import com.srakim.spitify.data.SubsonicApi
 import com.srakim.spitify.ui.LocalBottomInset
-import com.srakim.spitify.ui.LocalJamendo
 import com.srakim.spitify.data.JamendoApi
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
@@ -71,8 +71,7 @@ import kotlinx.coroutines.coroutineScope
 
 @Composable
 fun ArtistScreen(id: String) {
-    val api = LocalApi.current
-    val jamendo = LocalJamendo.current
+    val catalog = LocalCatalog.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -83,14 +82,7 @@ fun ArtistScreen(id: String) {
     var showAll by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val load = rememberLoad("artist", id) {
-        coroutineScope {
-            val fromJamendo = JamendoApi.isJamendo(id)
-            val info = async { if (fromJamendo) jamendo.artist(id) else api.artist(id) }
-            val tracks = async { if (fromJamendo) jamendo.artistTracks(id) else api.artistTracks(id) }
-            info.await() to tracks.await()
-        }
-    }
+    val load = rememberLoad("artist", id) { catalog.artist(id) }
     val artist = (load.state as? Load.Ready)?.data?.first
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
     val heroImage = artist?.cover ?: artist?.pictureLarge
@@ -142,7 +134,11 @@ fun ArtistScreen(id: String) {
                 is Load.Ready -> {
                     item {
                         Text(
-                            if (JamendoApi.isJamendo(id)) "Jamendo artist" else "${formatCount(artist?.followers ?: 0)} followers",
+                            when {
+                                JamendoApi.isJamendo(id) -> "Jamendo artist"
+                                SubsonicApi.isServer(id) -> "On your server"
+                                else -> "${formatCount(artist?.followers ?: 0)} followers"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
@@ -206,7 +202,11 @@ fun ArtistScreen(id: String) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("${formatCount(artist.followers)} followers", style = MaterialTheme.typography.titleMedium)
                                     Text(
-                                        if (JamendoApi.isJamendo(artist.id)) "On Jamendo" else "${artist.trackCount} tracks on Audius",
+                                        when {
+                                            JamendoApi.isJamendo(artist.id) -> "On Jamendo"
+                                            SubsonicApi.isServer(artist.id) -> "${artist.trackCount} songs on your server"
+                                            else -> "${artist.trackCount} tracks on Audius"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                     artist.bio?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = SpitifyColors.TextSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis) }

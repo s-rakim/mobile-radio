@@ -1,34 +1,27 @@
 # Branding
 
-The current icon is a placeholder: a green circle with four sound bars. Swapping in the real Spitify logo takes a couple of minutes.
+Spitify ships with two launcher icons, both drawn from Malcolm's logo. Pick one in Settings → Content and display → App icon. The change applies straight away; some launchers take a few seconds to refresh.
 
-## Where the logo is used
+| Name | Look | Resources |
+| --- | --- | --- |
+| Spitify (default) | The yellow face with headphones and a click-wheel player | `mipmap-*/ic_launcher*.png`, `ic_launcher_foreground` |
+| Classic | The red-headphones version | `mipmap-*/ic_launcher_classic*.png`, `ic_launcher_classic_foreground` |
 
-| File | What it is |
-| --- | --- |
-| `app/src/main/res/drawable/ic_launcher_foreground.xml` | The logo on the home screen icon and the splash screen |
-| `app/src/main/res/drawable/ic_launcher_monochrome.xml` | One-colour version for Android 13+ themed icons |
-| `app/src/main/res/values/colors.xml` → `ic_launcher_background` | Colour behind the logo |
+Both sit on a warm cream background, `#FFF4DC`, set in `res/values/ic_launcher_background.xml`. The splash screen uses the default icon's foreground.
 
-The launcher icon itself (`res/mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml`) just points at those, so you don't need to touch it.
+## How switching works
 
-## Option 1: Android Studio (easiest)
+Android has no API for changing an app's icon, so the manifest declares the launcher entry twice, as two `activity-alias` elements pointing at `MainActivity`:
 
-1. Right-click `app/src/main/res` → New → Image Asset
-2. Icon type: Launcher Icons (Adaptive and Legacy)
-3. Name: `ic_launcher`
-4. Foreground layer: pick your logo file (SVG or PNG). Use the resize slider to keep it inside the safe zone circle
-5. Background layer: colour `#121212`, or whatever suits the logo
-6. Finish. It overwrites the placeholder
+- `.LauncherDefault`, enabled
+- `.LauncherClassic`, disabled
 
-## Option 2: by hand
+Choosing an icon enables one alias and disables the other with `PackageManager.setComponentEnabledSetting(..., DONT_KILL_APP)`. That's all in `data/AppIcons.kt`. The previews in Settings use `drawable-nodpi/spitify_logo.png` and `spitify_logo_classic.png`.
 
-1. Export the logo as a 432×432 px PNG with a transparent background, with the mark itself inside the middle 288×288 px (Android crops the edges into circles, squircles and so on)
-2. Delete `app/src/main/res/drawable/ic_launcher_foreground.xml`
-3. Save the PNG as `app/src/main/res/drawable/ic_launcher_foreground.png`
-4. Optionally do the same for `ic_launcher_monochrome` with a white-only version
-5. Change `ic_launcher_background` in `colors.xml` if you want a different backdrop
+## Adding a third icon
 
-If the logo is an SVG, Android Studio's File → New → Vector Asset turns it into a drawable XML you can drop in as `ic_launcher_foreground.xml` instead.
+1. Generate the mipmaps (Android Studio → New → Image Asset works) and name them `ic_launcher_<name>` and `ic_launcher_<name>_round`
+2. Add an `activity-alias` named `.Launcher<Name>` to `AndroidManifest.xml`, copied from `.LauncherClassic`, with `android:enabled="false"`
+3. Add an entry to the `AppIcon` enum in `AppIcons.kt` with the alias, a label and a preview drawable
 
-Push to `main` and the next APK on the Releases page has the new icon.
+The full-size logo files live in `assets/`.

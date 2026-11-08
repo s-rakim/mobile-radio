@@ -152,6 +152,17 @@ Open it from the profile circle on any main tab.
 
 Download a single song from its menu, or a whole playlist, mix, artist or Liked Songs with the download button. Downloaded songs play from the phone with no connection and show a filled download icon. Downloads run while the app is open.
 
+## Music sources and Local Files
+
+- Local Files: songs saved on the phone, pinned in Your Library and first in Search
+- Your server: Navidrome or any Subsonic server, with its own page in Your Library and a Home shelf
+- Internet Archive netlabel albums and live recordings, on Home and in Search
+- ccMixter remixes on Home and in Search
+- Jamendo and SoundCloud, each hidden until you add your own keys
+- A credit line on the player saying where a song came from, with a link back
+
+Details are in [SOURCES.md](SOURCES.md).
+
 ## What Spitify can't do
 
 These depend on a big service's own servers, accounts or licensing deals, so there's no way to rebuild them on top of an open catalogue:

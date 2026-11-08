@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -41,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -48,9 +51,12 @@ import com.srakim.spitify.data.RecentItem
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalBottomInset
 import com.srakim.spitify.ui.LocalDownloads
+import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
+import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.components.Artwork
 import com.srakim.spitify.ui.components.EmptyState
+import com.srakim.spitify.ui.components.IconArt
 import com.srakim.spitify.ui.components.LikedSongsArt
 import com.srakim.spitify.ui.components.MosaicArt
 import com.srakim.spitify.ui.components.Pill
@@ -70,6 +76,8 @@ private data class LibraryEntry(
     val images: List<String?> = emptyList(),
     val addedAt: Long = 0,
     val pinned: Boolean = false,
+    /** "local" or "server" for the built-in collections that aren't playlists. */
+    val special: String? = null,
 )
 
 @Composable
@@ -79,6 +87,9 @@ fun LibraryScreen() {
     val downloads = LocalDownloads.current
     val lib by library.state.collectAsStateWithLifecycle()
     val dl by downloads.state.collectAsStateWithLifecycle()
+    val settings by LocalSettings.current.state.collectAsStateWithLifecycle()
+    val catalog = LocalCatalog.current
+    val localTracks by catalog.local.tracks.collectAsStateWithLifecycle()
 
     var filter by rememberSaveable { mutableStateOf<LibraryFilter?>(null) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTS) }
@@ -89,6 +100,13 @@ fun LibraryScreen() {
     val entries = buildList {
         if (filter == null || filter == LibraryFilter.PLAYLISTS) {
             add(LibraryEntry("LIKED:liked", "Liked Songs", "Playlist • ${lib.liked.size} songs", RecentItem.Kind.LIKED, "liked", null, pinned = true))
+            if (settings.showLocalFiles) {
+                val subtitle = if (localTracks.isEmpty()) "Songs saved on this phone" else "Playlist • ${localTracks.size} songs"
+                add(LibraryEntry("LOCAL:local", "Local Files", subtitle, RecentItem.Kind.PLAYLIST, "local", null, pinned = true, special = "local"))
+            }
+            if (catalog.server.enabled) {
+                add(LibraryEntry("SERVER:server", "Your server", "Navidrome / Subsonic", RecentItem.Kind.PLAYLIST, "server", null, pinned = true, special = "server"))
+            }
             lib.playlists.forEach { p ->
                 add(
                     LibraryEntry(
@@ -98,7 +116,7 @@ fun LibraryScreen() {
                 )
             }
             lib.savedPlaylists.forEachIndexed { i, p ->
-                add(LibraryEntry("PLAYLIST:${p.id}", p.name, "Playlist • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong()))
+                add(LibraryEntry("PLAYLIST:${p.id}", p.name, "${p.label} • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong()))
             }
         }
         if (filter == null || filter == LibraryFilter.ARTISTS) {
@@ -115,12 +133,18 @@ fun LibraryScreen() {
         }
     }
 
-    fun open(e: LibraryEntry) = when (e.kind) {
+    fun openKind(e: LibraryEntry) = when (e.kind) {
         RecentItem.Kind.LIKED -> actions.openLiked()
         RecentItem.Kind.MY_PLAYLIST -> actions.openMyPlaylist(e.id)
         RecentItem.Kind.PLAYLIST -> actions.openPlaylist(e.id)
         RecentItem.Kind.ARTIST -> actions.openArtist(e.id)
         RecentItem.Kind.MIX -> actions.openMix(e.id)
+    }
+
+    fun open(e: LibraryEntry) = when {
+        e.special == "local" -> actions.openLocalFiles()
+        e.special == "server" -> actions.openServer()
+        else -> openKind(e)
     }
 
     LazyVerticalGrid(
@@ -214,6 +238,15 @@ fun LibraryScreen() {
 
 @Composable
 private fun EntryArt(e: LibraryEntry, modifier: Modifier) {
+    when {
+        e.special == "local" -> IconArt(Icons.Rounded.Folder, Color(0xFF2E7D5B), Color(0xFF123326), modifier)
+        e.special == "server" -> IconArt(Icons.Rounded.Dns, Color(0xFF3D5A80), Color(0xFF141E2E), modifier)
+        else -> KindArt(e, modifier)
+    }
+}
+
+@Composable
+private fun KindArt(e: LibraryEntry, modifier: Modifier) {
     when (e.kind) {
         RecentItem.Kind.LIKED -> LikedSongsArt(modifier)
         RecentItem.Kind.ARTIST -> Artwork(e.image, modifier, CircleShape)

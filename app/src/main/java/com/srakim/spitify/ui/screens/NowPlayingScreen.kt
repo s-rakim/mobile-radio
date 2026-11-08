@@ -179,6 +179,24 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.clickable(enabled = track.artistId.isNotBlank()) { actions.openArtist(track.artistId) },
                             )
+                            if (track.source != "Audius") {
+                                // Credit where the song came from, with a link back when there is one (SoundCloud requires it).
+                                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                                val link = track.link
+                                Text(
+                                    when {
+                                        link != null -> "On ${track.source} ↗"
+                                        track.isLocal -> "From this device"
+                                        else -> "From your server"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = SpitifyColors.TextPrimary.copy(alpha = 0.55f),
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .clickable(enabled = link != null) { link?.let { runCatching { uriHandler.openUri(it) } } },
+                                )
+                            }
                         }
                         IconButton(onClick = {
                             val now = library.toggleLike(track)

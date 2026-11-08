@@ -31,8 +31,19 @@ data class AppSettings(
     val downloadOnCellular: Boolean = false,
     val showLyrics: Boolean = true,
     val jamendoEnabled: Boolean = true,
-    /** Blank means use the built-in id. */
+    /** Jamendo stays hidden until this is filled in. */
     val jamendoClientId: String = "",
+    val archiveEnabled: Boolean = true,
+    val ccMixterEnabled: Boolean = true,
+    /** Both come from an app registered at soundcloud.com/you/apps. SoundCloud stays off without them. */
+    val soundCloudClientId: String = "",
+    val soundCloudClientSecret: String = "",
+    /** A Subsonic-compatible server such as Navidrome. */
+    val subsonicEnabled: Boolean = true,
+    val subsonicUrl: String = "",
+    val subsonicUser: String = "",
+    val subsonicPassword: String = "",
+    val showLocalFiles: Boolean = true,
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

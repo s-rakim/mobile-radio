@@ -53,7 +53,7 @@ class DownloadStore(
     /** Queues the songs that aren't saved yet. Returns false if blocked by the Wi-Fi only setting. */
     fun download(tracks: List<Track>): Boolean {
         if (isOnCellular() && !settings.current.downloadOnCellular) return false
-        val todo = tracks.filter { !_state.value.has(it.id) && !_state.value.isDownloading(it.id) }
+        val todo = tracks.filter { it.canDownload && !_state.value.has(it.id) && !_state.value.isDownloading(it.id) }
         if (todo.isEmpty()) return true
         _state.update { it.copy(inProgress = it.inProgress + todo.map { t -> t.id }) }
         todo.forEach { track ->

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.srakim.spitify.SpitifyApp
 import com.srakim.spitify.data.AudiusApi
+import com.srakim.spitify.data.Catalog
 import com.srakim.spitify.data.DownloadStore
 import com.srakim.spitify.data.JamendoApi
 import com.srakim.spitify.data.LyricsApi
@@ -38,6 +39,7 @@ val LocalThemes = staticCompositionLocalOf<ThemeStore> { error("No ThemeStore pr
 val LocalLyrics = staticCompositionLocalOf<LyricsApi> { error("No LyricsApi provided") }
 val LocalApp = staticCompositionLocalOf<SpitifyApp> { error("No app provided") }
 val LocalJamendo = staticCompositionLocalOf<JamendoApi> { error("No JamendoApi provided") }
+val LocalCatalog = staticCompositionLocalOf<Catalog> { error("No Catalog provided") }
 
 /** Data saver swaps artwork for the smallest size the API offers. */
 val LocalDataSaver = staticCompositionLocalOf { false }
@@ -64,6 +66,8 @@ object Dest {
     const val THEMES = "settings/theme"
     const val HISTORY = "history"
     const val DOWNLOADS = "downloads"
+    const val LOCAL_FILES = "local"
+    const val SERVER = "server"
 }
 
 /** App-wide actions any screen can trigger: navigation, sheets, toasts. */
@@ -85,17 +89,19 @@ class AppActions(
         nav.navigate("${currentTab()}/$path")
     }
 
-    fun openPlaylist(id: String) = go("playlist/$id")
+    fun openPlaylist(id: String) = go("playlist/${android.net.Uri.encode(id)}")
     fun openMyPlaylist(id: String) = go("mine/$id")
     fun openLiked() = go("liked")
     fun openMix(genre: String) = go("mix/${android.net.Uri.encode(genre)}")
-    fun openArtist(id: String) = go("artist/$id")
+    fun openArtist(id: String) = go("artist/${android.net.Uri.encode(id)}")
     fun openSearchInput() = nav.navigate("search/find")
     fun openSettings() = go("settings")
     fun openEqualizer() = go("settings/equalizer")
     fun openThemes() = go("settings/theme")
     fun openHistory() = go("history")
     fun openDownloads() = go("downloads")
+    fun openLocalFiles() = go("local")
+    fun openServer() = go("server")
     fun back() = nav.popBackStack()
 
     fun toast(message: String) {

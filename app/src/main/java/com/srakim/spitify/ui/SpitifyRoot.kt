@@ -66,12 +66,14 @@ import com.srakim.spitify.ui.screens.HistoryScreen
 import com.srakim.spitify.ui.screens.HomeScreen
 import com.srakim.spitify.ui.screens.LibraryScreen
 import com.srakim.spitify.ui.screens.LikedSongsScreen
+import com.srakim.spitify.ui.screens.LocalFilesScreen
 import com.srakim.spitify.ui.screens.MixScreen
 import com.srakim.spitify.ui.screens.MyPlaylistScreen
 import com.srakim.spitify.ui.screens.NowPlayingScreen
 import com.srakim.spitify.ui.screens.PlaylistScreen
 import com.srakim.spitify.ui.screens.SearchInputScreen
 import com.srakim.spitify.ui.screens.SearchScreen
+import com.srakim.spitify.ui.screens.ServerScreen
 import com.srakim.spitify.ui.screens.SettingsScreen
 import com.srakim.spitify.ui.screens.ThemeScreen
 import com.srakim.spitify.ui.sheets.AddToPlaylistSheet
@@ -118,6 +120,9 @@ fun SpitifyRoot(app: SpitifyApp) {
     LaunchedEffect(Unit) {
         app.player.messages.collect { actions.toast(it) }
     }
+    LaunchedEffect(settings.showLocalFiles) {
+        if (settings.showLocalFiles) app.localMusic.refresh()
+    }
 
     CompositionLocalProvider(
         LocalApp provides app,
@@ -129,6 +134,7 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalThemes provides app.themes,
         LocalLyrics provides app.lyrics,
         LocalJamendo provides app.jamendo,
+        LocalCatalog provides app.catalog,
         LocalActions provides actions,
         LocalDataSaver provides settings.dataSaver,
         LocalBottomInset provides if (playback.current != null) 150.dp else 86.dp,
@@ -238,6 +244,8 @@ private fun AppNavHost(nav: NavHostController) {
             composable("$p/${Dest.THEMES}") { ThemeScreen() }
             composable("$p/${Dest.HISTORY}") { HistoryScreen() }
             composable("$p/${Dest.DOWNLOADS}") { DownloadsScreen() }
+            composable("$p/${Dest.LOCAL_FILES}") { LocalFilesScreen() }
+            composable("$p/${Dest.SERVER}") { ServerScreen() }
         }
     }
 }

@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -21,6 +22,7 @@ import com.srakim.spitify.MainActivity
 import com.srakim.spitify.SpitifyApp
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.DownloadStore
+import com.srakim.spitify.data.SoundCloudApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,7 +48,11 @@ class PlaybackService : MediaSessionService() {
         val app = application as SpitifyApp
 
         // Local files for downloads, OkHttp for everything streamed.
-        val dataSource = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(app.httpClient))
+        val network = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(app.httpClient))
+        // SoundCloud stream addresses are signed and short-lived, so they're fetched right before playback.
+        val dataSource = ResolvingDataSource.Factory(network) { spec ->
+            if (spec.uri.scheme == SoundCloudApi.SCHEME) spec.withUri(app.soundCloud.resolveStreamBlocking(spec.uri)) else spec
+        }
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSource))
             .setAudioAttributes(

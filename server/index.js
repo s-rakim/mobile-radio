@@ -100,7 +100,6 @@ app.get('/api/jiosaavn', async (req, res) => {
 // --- 8. BANDCAMP (Scraper) ---
 app.get('/api/bandcamp', async (req, res) => {
     try {
-        // Warning: Puppeteer is heavy. May time out on free tier if searching quickly.
         const searchResults = await bcfetch.search.albums({ query: req.query.q, page: 1 });
         const tracks = [];
         for (const album of searchResults.items.slice(0, 2)) {

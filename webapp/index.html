@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' https: data: blob:; media-src https: blob:; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; worker-src 'self'; manifest-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Spitify in your browser. Stream independent music from Audius.">
+  <title>Spitify</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <img class="titlebar-logo" src="assets/logo.png" alt="">
+      <button class="round-btn" data-action="back" title="Go back" aria-label="Go back">
+        <svg viewBox="0 0 24 24"><path d="M15.5 4.5 8 12l7.5 7.5" /></svg>
+      </button>
+      <button class="round-btn" data-action="forward" title="Go forward" aria-label="Go forward">
+        <svg viewBox="0 0 24 24"><path d="M8.5 4.5 16 12l-7.5 7.5" /></svg>
+      </button>
+    </div>
+    <div class="titlebar-centre">
+      <button class="home-btn" data-action="go" data-route="home" title="Home" aria-label="Home">
+        <svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4z" /></svg>
+      </button>
+      <label class="search-box">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+        <input id="search" type="search" placeholder="What do you want to play?" autocomplete="off" spellcheck="false">
+        <kbd>Ctrl K</kbd>
+      </label>
+    </div>
+    <div class="titlebar-right">
+      <button class="install-btn" data-action="install" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" /></svg>
+        Install app
+      </button>
+      <button class="profile-btn" data-action="go" data-route="settings" title="Settings" aria-label="Settings">S</button>
+    </div>
+  </header>
+
+  <div class="frame">
+    <nav class="sidebar panel" id="sidebar"></nav>
+    <main class="main panel" id="main" tabindex="-1"></main>
+    <aside class="side panel" id="side" hidden></aside>
+  </div>
+
+  <footer class="player" id="player"></footer>
+
+  <div id="menu" class="menu" hidden></div>
+  <div id="modal" class="modal-backdrop" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <audio id="audio" preload="auto"></audio>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -94,6 +94,22 @@ class AppActions(
     fun openMix(genre: String) = go("mix/${android.net.Uri.encode(genre)}")
     fun openArtist(id: String) = go("artist/${android.net.Uri.encode(id)}")
     fun openSearchInput() = nav.navigate("search/find")
+
+    /** Opens the search screen already searching for [query]. */
+    fun searchFor(query: String) {
+        closePlayer()
+        nav.navigate("search/find/${android.net.Uri.encode(query)}")
+    }
+
+    /**
+     * Tapping an artist's name, like in Spotify: their page when the song's source has one,
+     * otherwise a search for their name, which lists their songs from every source.
+     */
+    fun openArtistOf(track: Track) = when {
+        track.artistId.isNotBlank() -> openArtist(track.artistId)
+        track.artistSearchName.isNotBlank() -> searchFor(track.artistSearchName)
+        else -> Unit
+    }
     fun openSettings() = go("settings")
     fun openEqualizer() = go("settings/equalizer")
     fun openThemes() = go("settings/theme")

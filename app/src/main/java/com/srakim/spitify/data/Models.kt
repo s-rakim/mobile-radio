@@ -35,6 +35,21 @@ data class Track(
 
     val isLocal: Boolean get() = id.startsWith(LocalMusic.ID_PREFIX)
 
+    /**
+     * The name to look up when there's no artist page, e.g. a YouTube channel.
+     * Drops the channel noise YouTube adds ("Sauti Sol - Topic", "SautiSolVEVO").
+     */
+    val artistSearchName: String
+        get() = artist
+            .replace(Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*(VEVO|Official)$", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .takeUnless { it.isBlank() || it.equals("Unknown artist", true) || it == "<unknown>" }
+            .orEmpty()
+
+    /** Whether tapping the artist's name can go anywhere. */
+    val hasArtistLink: Boolean get() = artistId.isNotBlank() || artistSearchName.isNotBlank()
+
     /** Songs already on the phone don't need saving. */
     val canDownload: Boolean get() = !isLocal
 }

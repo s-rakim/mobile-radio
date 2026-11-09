@@ -301,7 +301,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                     color = SpitifyColors.TextPrimary.copy(alpha = 0.7f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable(enabled = track.artistId.isNotBlank()) { actions.openArtist(track.artistId) },
+                                    modifier = Modifier.clickable(enabled = track.hasArtistLink) { actions.openArtistOf(track) },
                                 )
                                 if (track.source != "Audius") {
                                     // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
@@ -404,14 +404,14 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 LyricsCard(lyr, state.positionMs, lerp(art.secondary, color, 0.5f), onExpand = { lyricsOpen = true })
             }
 
-            if (track.artistId.isNotBlank()) {
+            if (track.hasArtistLink) {
                 Column(
                     Modifier
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(SpitifyColors.Highlight)
-                        .clickable { actions.openArtist(track.artistId) },
+                        .clickable { actions.openArtistOf(track) },
                 ) {
                     Box(Modifier.fillMaxWidth().height(180.dp)) {
                         Artwork(track.artistImage, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
@@ -675,10 +675,10 @@ private fun PlayerMenu(onDismiss: () -> Unit) {
                 tint = if (ends != null) SpitifyColors.Accent else SpitifyColors.TextSecondary,
                 onClick = { sleepPicker = true },
             )
-            if (track.artistId.isNotBlank()) {
+            if (track.hasArtistLink) {
                 SheetOption(Icons.Rounded.MoreVert, "Go to artist", onClick = {
                     onDismiss()
-                    actions.openArtist(track.artistId)
+                    actions.openArtistOf(track)
                 })
             }
         } else {

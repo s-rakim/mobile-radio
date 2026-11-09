@@ -193,10 +193,10 @@ fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
                 onDismiss()
             })
         }
-        if (track.artistId.isNotBlank()) {
+        if (track.hasArtistLink) {
             SheetOption(Icons.Rounded.Person, "Go to artist", onClick = {
                 onDismiss()
-                actions.openArtist(track.artistId)
+                actions.openArtistOf(track)
             })
         }
         if (!track.genre.isNullOrBlank()) {

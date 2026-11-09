@@ -172,7 +172,7 @@ private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"),
 
 /** The focused search page with live results, filters and recent searches. */
 @Composable
-fun SearchInputScreen() {
+fun SearchInputScreen(initialQuery: String = "") {
     val catalog = LocalCatalog.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
@@ -181,8 +181,8 @@ fun SearchInputScreen() {
     val playback by player.state.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
 
-    var query by rememberSaveable { mutableStateOf("") }
-    var debounced by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf(initialQuery) }
+    var debounced by rememberSaveable { mutableStateOf(initialQuery.trim()) }
     var filter by rememberSaveable { mutableStateOf(ResultFilter.TOP) }
     val focus = remember { FocusRequester() }
 

@@ -136,11 +136,17 @@ fun TrackRow(
                     EqualizerBars(Modifier.size(11.dp))
                     Spacer(Modifier.width(5.dp))
                 }
+                val actions = com.srakim.spitify.ui.LocalActions.current
                 Text(
                     text = track.artist,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (track.hasArtistLink) {
+                        Modifier.clickable(onClickLabel = "Go to ${track.artist}") { actions.openArtistOf(track) }
+                    } else {
+                        Modifier
+                    },
                 )
             }
         }

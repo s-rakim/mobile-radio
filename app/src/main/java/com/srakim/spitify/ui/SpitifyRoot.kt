@@ -283,6 +283,7 @@ private fun AppNavHost(nav: NavHostController) {
         composable(Tab.SEARCH.route) { SearchScreen() }
         composable(Tab.LIBRARY.route) { LibraryScreen() }
         composable(Dest.SEARCH_INPUT) { SearchInputScreen() }
+        composable("${Dest.SEARCH_INPUT}/{q}") { SearchInputScreen(it.arguments?.getString("q").orEmpty()) }
 
         Tab.entries.forEach { tab ->
             val p = tab.route

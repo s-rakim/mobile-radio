@@ -5,10 +5,12 @@ const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
 
 module.exports = async (query) => {
   return new Promise((resolve) => {
-    execFile('python3', ['-u', SCRIPT_PATH, query], { timeout: 30000 }, (error, stdout, stderr) => {
+    execFile('python3', ['-u', SCRIPT_PATH, query], { timeout: 60000 }, (error, stdout, stderr) => {
       if (error) {
-        console.warn('[youtube-docker] Python error:', error.message);
-        return resolve([{ error: error.message }]); 
+        // Capture the Python traceback if it crashes
+        const combinedError = `Error: ${error.message} | Stderr: ${stderr} | Stdout: ${stdout}`;
+        console.warn('[youtube-docker] Python error:', combinedError);
+        return resolve([{ error: combinedError }]); 
       }
       
       try {
@@ -20,7 +22,7 @@ module.exports = async (query) => {
         resolve([data]); 
       } catch (e) {
         console.warn('[youtube-docker] Failed to parse JSON:', stdout);
-        resolve([{ error: "Parse failed: " + stdout }]);
+        resolve([{ error: "Parse failed: " + stdout + " | Stderr: " + stderr }]);
       }
     });
   });

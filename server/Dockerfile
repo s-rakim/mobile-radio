@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y \
 # Install Deno via npm
 RUN npm install -g deno
 
-# Install yt-dlp, EJS plugin, AND the BGutil POT provider plugin
-RUN pip3 install --break-system-packages -U yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
+# Install yt-dlp, EJS plugin, POT provider, AND PySocks for the proxy
+RUN pip3 install --break-system-packages -U yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider PySocks
 
 WORKDIR /app
 

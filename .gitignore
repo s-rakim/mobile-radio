@@ -22,3 +22,4 @@ keystore/
 *.jks
 *.keystore
 cookies.txt
+__pycache__/

@@ -109,7 +109,9 @@ def fetch_stream(video_id, fast=True):
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
     last_error = None
-    ways = (FAST_CLIENTS, None) if fast and os.environ.get("YT_FAST", "1") != "0" else (None,)
+    # Off by default: YouTube currently refuses to stream these links (HTTP 403) without a
+    # token. Set YT_FAST=1 to try it again if that changes.
+    ways = (FAST_CLIENTS, None) if fast and os.environ.get("YT_FAST", "0") == "1" else (None,)
 
     for clients in ways:
         opts = build_opts()

@@ -1,11 +1,12 @@
 FROM node:20-slim
 
-# Install system dependencies, Python, and Tailscale
+# Install system dependencies, Python, Tailscale, and wget
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
     unzip \
+    wget \
     && curl -fsSL https://tailscale.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 

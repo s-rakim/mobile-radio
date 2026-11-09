@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.imageLoader
 import com.srakim.spitify.BuildConfig
+import com.srakim.spitify.data.AppUpdater
 import com.srakim.spitify.data.AppSettings
 import com.srakim.spitify.data.VolumeLevel
 import com.srakim.spitify.ui.LocalActions
@@ -172,6 +173,8 @@ fun SettingsScreen() {
     var editingName by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf(false) }
     var editingWeb by remember { mutableStateOf(false) }
+    val updater = LocalApp.current.updater
+    val updateStatus by updater.status.collectAsStateWithLifecycle()
     val catalog = LocalCatalog.current
     val scope = rememberCoroutineScope()
     var serverStatus by remember { mutableStateOf<String?>(null) }
@@ -345,7 +348,10 @@ fun SettingsScreen() {
             )
         }
         item {
-            SettingRow("Streaming quality", "High (up to 320 kbps). Set by the source, so there's nothing to pick.")
+            SettingRow(
+                "Streaming quality",
+                "Always the best each source has: up to 320 kbps on Audius, YouTube's top audio stream, lossless FLAC from the Internet Archive where it exists, and your own server's original files.",
+            )
         }
 
         group("Data saving and offline")
@@ -403,6 +409,20 @@ fun SettingsScreen() {
 
         group("About")
         item { SettingRow("Version", BuildConfig.VERSION_NAME) }
+        if (updater.supported) {
+            item {
+                SettingRow(
+                    "Check for updates",
+                    when (updateStatus) {
+                        AppUpdater.Status.Checking -> "Checking…"
+                        AppUpdater.Status.UpToDate -> "You're on the latest version"
+                        is AppUpdater.Status.Downloading -> "Downloading…"
+                        else -> "New builds install over this one and keep your library"
+                    },
+                    onClick = { updater.check() },
+                )
+            }
+        }
         item {
             SettingRow(
                 "Music catalogue",

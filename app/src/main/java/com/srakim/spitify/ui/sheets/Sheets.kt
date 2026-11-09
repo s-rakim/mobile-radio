@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
@@ -179,6 +180,18 @@ fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
                     onDismiss()
                 },
             )
+        }
+        if (track.canDownload) {
+            SheetOption(Icons.Rounded.SaveAlt, "Save to phone", onClick = {
+                actions.toast("Saving to your phone…")
+                downloads.saveToPhone(track) { result ->
+                    result.fold(
+                        { folder -> actions.toast("Saved to $folder") },
+                        { actions.toast(it.message ?: "Couldn't save the song") },
+                    )
+                }
+                onDismiss()
+            })
         }
         if (track.artistId.isNotBlank()) {
             SheetOption(Icons.Rounded.Person, "Go to artist", onClick = {

@@ -32,6 +32,23 @@ async function jamendo(q) {
   );
 }
 
+// Best audio file in an Archive item: lossless FLAC first, then the highest MP3 bitrate.
+// "VBR MP3" (the usual default) is often around 128 kbps.
+function bestArchiveFile(files) {
+  const rank = (f) => {
+    const format = (f.format || '').toLowerCase();
+    if (format.includes('flac') && /\.flac$/i.test(f.name)) return 0;
+    if (format.includes('320')) return 1;
+    if (format.includes('256')) return 2;
+    if (format.includes('vbr mp3')) return 3;
+    if (format.includes('mp3') && /\.mp3$/i.test(f.name)) return 4;
+    return 99;
+  };
+  return files
+    .filter((f) => rank(f) < 99)
+    .sort((a, b) => rank(a) - rank(b))[0];
+}
+
 // Internet Archive search only returns items, not files, so each hit needs a
 // second call to find an mp3 inside it.
 async function archive(q) {
@@ -47,7 +64,7 @@ async function archive(q) {
   const tracks = await Promise.allSettled(
     docs.map(async (doc) => {
       const meta = await getJson(`https://archive.org/metadata/${enc(doc.identifier)}/files`);
-      const file = (meta.result || []).find((f) => /mp3/i.test(f.format || '') && /\.mp3$/i.test(f.name));
+      const file = bestArchiveFile(meta.result || []);
       if (!file) return null;
 
       const filePath = file.name.split('/').map(enc).join('/');

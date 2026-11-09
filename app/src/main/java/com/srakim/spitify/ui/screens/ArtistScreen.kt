@@ -177,12 +177,13 @@ fun ArtistScreen(id: String) {
                             }
                         }
                     }
-                    if (tracks.size > 10) {
-                        item { SectionHeader("All songs") }
+                    // Everything not already shown under Popular, so no song is missing or listed twice.
+                    if (tracks.size > shown.size) {
+                        item { SectionHeader("All songs • ${tracks.size}") }
                         collectionTracks(
-                            tracks.drop(10), PlayContext("artist-all:$id", artist?.name ?: "Artist", "ARTIST"),
+                            tracks.drop(shown.size), PlayContext("artist-all:$id", artist?.name ?: "Artist", "ARTIST"),
                             playback.current?.id, playback.isPlaying, likedIds,
-                            onPlay = { player.play(tracks, it + 10, ctx) },
+                            onPlay = { player.play(tracks, it + shown.size, ctx) },
                             onMore = { actions.showTrackMenu(it, null) },
                         )
                     }

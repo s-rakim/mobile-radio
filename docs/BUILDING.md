@@ -29,6 +29,12 @@ Pushes that only touch Markdown or `docs/` don't trigger a build.
 
 The version code is the run number, so every release can install over the previous one.
 
+## Over-the-air updates
+
+The app checks the latest GitHub release every few hours (and on demand from Settings → About → Check for updates). When the release's version code is higher than its own, it offers to download the APK and opens Android's installer. The first time, Android asks you to allow installs from Spitify.
+
+This only works when every build is signed with the same key, so set up the signing secrets below. Builds signed with a throwaway key can't install over each other.
+
 ## Signing
 
 No signing key is kept in the repo. `keystore/` and `*.jks` are in `.gitignore`, so a key can't be committed by accident.

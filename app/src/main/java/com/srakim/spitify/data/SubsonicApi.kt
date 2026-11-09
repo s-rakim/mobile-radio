@@ -85,7 +85,7 @@ class SubsonicApi(private val client: OkHttpClient, private val settings: Settin
 
     suspend fun artist(id: String): Pair<Artist?, List<Track>> = coroutineScope {
         val a = call("getArtist", mapOf("id" to id.removePrefix(ARTIST_PREFIX))).obj("artist") ?: return@coroutineScope null to emptyList()
-        val albums = a.array("album").take(6)
+        val albums = a.array("album").take(40)
         val tracks = albums.map { album ->
             async { runCatching { playlist(ALBUM_PREFIX + album.text("id").orEmpty()).second }.getOrDefault(emptyList()) }
         }.awaitAll().flatten()
@@ -95,7 +95,8 @@ class SubsonicApi(private val client: OkHttpClient, private val settings: Settin
     fun coverUrl(coverId: String, size: Int = 500): String? =
         endpoint("getCoverArt", mapOf("id" to coverId, "size" to size.toString()))?.toString()
 
-    private fun streamUrl(songId: String): String? = endpoint("stream", mapOf("id" to songId))?.toString()
+    // format=raw asks for the original file, so the server never transcodes it down.
+    private fun streamUrl(songId: String): String? = endpoint("stream", mapOf("id" to songId, "format" to "raw"))?.toString()
 
     private fun JsonObject.toTrack(): Track {
         val songId = text("id").orEmpty()

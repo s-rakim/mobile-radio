@@ -61,6 +61,7 @@ import com.srakim.spitify.SpitifyApp
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.screens.ArtistScreen
 import com.srakim.spitify.ui.screens.DownloadsScreen
+import com.srakim.spitify.ui.sheets.UpdateDialog
 import com.srakim.spitify.ui.screens.EqualizerScreen
 import com.srakim.spitify.ui.screens.HistoryScreen
 import com.srakim.spitify.ui.screens.HomeScreen
@@ -144,6 +145,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                 .background(SpitifyColors.Background),
         ) {
             AppNavHost(nav)
+            UpdateDialog()
 
             Column(
                 Modifier

@@ -27,7 +27,10 @@ def build_opts():
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "format": "bestaudio/best",
+        # Highest-bitrate audio-only stream: Opus (~160 kbps) first, then AAC.
+        # Never a video file with sound baked in unless nothing else exists.
+        "format": "bestaudio[acodec=opus]/bestaudio[ext=m4a]/bestaudio/best",
+        "format_sort": ["abr", "asr"],
         "socket_timeout": 15,
         "extractor_args": {},
     }

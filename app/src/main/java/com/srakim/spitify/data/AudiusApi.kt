@@ -66,11 +66,21 @@ class AudiusApi(private val client: OkHttpClient) {
         return runCatching { json.decodeFromJsonElement<ApiUser>(element) }.getOrNull()?.toArtist()
     }
 
-    suspend fun artistTracks(id: String): List<Track> =
-        fetch("/v1/users/$id/tracks", mapOf("limit" to "50"))
-            .decodeList<ApiTrack>()
-            .sortedByDescending { it.playCount }
-            .toTracks()
+    /** Every song the artist has uploaded (up to a generous cap), most played first. */
+    suspend fun artistTracks(id: String): List<Track> {
+        val all = mutableListOf<ApiTrack>()
+        var offset = 0
+        while (all.size < MAX_ARTIST_TRACKS) {
+            val page = fetch(
+                "/v1/users/$id/tracks",
+                mapOf("limit" to ARTIST_PAGE.toString(), "offset" to offset.toString()),
+            ).decodeList<ApiTrack>()
+            all += page
+            if (page.size < ARTIST_PAGE) break
+            offset += ARTIST_PAGE
+        }
+        return all.distinctBy { it.id }.sortedByDescending { it.playCount }.toTracks()
+    }
 
     private suspend fun fetch(path: String, params: Map<String, String> = emptyMap()): JsonElement? =
         withContext(Dispatchers.IO) {
@@ -103,6 +113,8 @@ class AudiusApi(private val client: OkHttpClient) {
         const val BASE_URL = "https://api.audius.co"
         const val APP_NAME = "spitify"
         private const val CACHE_TTL_MS = 5 * 60 * 1000L
+        private const val ARTIST_PAGE = 50
+        private const val MAX_ARTIST_TRACKS = 500
 
         fun streamUrl(trackId: String) = "$BASE_URL/v1/tracks/$trackId/stream?app_name=$APP_NAME"
     }

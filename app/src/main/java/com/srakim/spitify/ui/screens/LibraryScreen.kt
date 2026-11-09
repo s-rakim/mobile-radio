@@ -76,7 +76,7 @@ private data class LibraryEntry(
     val images: List<String?> = emptyList(),
     val addedAt: Long = 0,
     val pinned: Boolean = false,
-    /** "local" or "server" for the built-in collections that aren't playlists. */
+    /** "local", "server" or "recent" for the built-in collections that aren't playlists. */
     val special: String? = null,
 )
 
@@ -100,6 +100,8 @@ fun LibraryScreen() {
     val entries = buildList {
         if (filter == null || filter == LibraryFilter.PLAYLISTS) {
             add(LibraryEntry("LIKED:liked", "Liked Songs", "Playlist • ${lib.liked.size} songs", RecentItem.Kind.LIKED, "liked", null, pinned = true))
+            val recentSubtitle = if (lib.recentTracks.isEmpty()) "Songs you play show up here" else "Playlist • ${lib.recentTracks.size} songs"
+            add(LibraryEntry("RECENT:recent", "Recent songs", recentSubtitle, RecentItem.Kind.PLAYLIST, "recent", null, pinned = true, special = "recent"))
             if (settings.showLocalFiles) {
                 val subtitle = if (localTracks.isEmpty()) "Songs saved on this phone" else "Playlist • ${localTracks.size} songs"
                 add(LibraryEntry("LOCAL:local", "Local Files", subtitle, RecentItem.Kind.PLAYLIST, "local", null, pinned = true, special = "local"))
@@ -144,6 +146,7 @@ fun LibraryScreen() {
     fun open(e: LibraryEntry) = when {
         e.special == "local" -> actions.openLocalFiles()
         e.special == "server" -> actions.openServer()
+        e.special == "recent" -> actions.openHistory()
         else -> openKind(e)
     }
 
@@ -241,6 +244,7 @@ private fun EntryArt(e: LibraryEntry, modifier: Modifier) {
     when {
         e.special == "local" -> IconArt(Icons.Rounded.Folder, Color(0xFF2E7D5B), Color(0xFF123326), modifier)
         e.special == "server" -> IconArt(Icons.Rounded.Dns, Color(0xFF3D5A80), Color(0xFF141E2E), modifier)
+        e.special == "recent" -> IconArt(Icons.Rounded.History, Color(0xFFB5651D), Color(0xFF3A1F0A), modifier)
         else -> KindArt(e, modifier)
     }
 }

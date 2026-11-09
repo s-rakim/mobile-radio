@@ -3,6 +3,7 @@ package com.srakim.spitify
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.srakim.spitify.data.AppUpdater
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.Catalog
 import com.srakim.spitify.data.DownloadStore
@@ -39,6 +40,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
     val downloads: DownloadStore by lazy { DownloadStore(this, httpClient, settings) }
+    val updater: AppUpdater by lazy { AppUpdater(this, httpClient) }
     val player: PlayerController by lazy { PlayerController(this, api, library, settings, downloads) }
 
     /** Set by the playback service while it's alive, so Settings can read equaliser bands. */

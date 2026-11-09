@@ -376,8 +376,8 @@ fun HistoryScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     val likedIds = rememberLikedIds()
-    val ctx = PlayContext("history", "Recently played", "RECENTLY PLAYED")
-    SimpleListScreen("Recently played") {
+    val ctx = PlayContext("history", "Recent songs", "RECENT SONGS")
+    SimpleListScreen("Recent songs") {
         if (lib.recentTracks.isEmpty()) {
             item { EmptyState("Nothing here yet", "Songs you play show up here.") }
         }

@@ -118,7 +118,7 @@ app.get('/stream/:id', async (req, res) => {
     // link went stale: drop it and try once more with a fresh one
     upstream.body.destroy();
     invalidate(id);
-    track = attempt === 0 ? await refetch(id, { full: true }) : null;
+    track = attempt === 0 ? await refetch(id) : null;
     if (!track) return res.status(410).json({ error: 'Stream URL expired, search again' });
   }
 

@@ -11,23 +11,25 @@ sleep 3
 echo "Connecting to Tailnet..."
 tailscale up --authkey=${TS_AUTHKEY} --hostname=spitify-render --accept-routes
 
-# Wait until Tailscale is fully connected to the network
+# Wait until Tailscale is fully connected
 echo "Waiting for Tailscale connection..."
 while ! tailscale status > /dev/null 2>&1; do
   sleep 2
 done
 echo "Tailscale connected!"
 
-# Download gost v2 (Direct binary download - no tar needed)
+# Download gost v2 (Direct binary download)
 echo "Installing gost v2..."
 wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
 gzip -d gost-linux-amd64-2.11.5.gz
 mv gost-linux-amd64-2.11.5 /usr/local/bin/gost
 chmod +x /usr/local/bin/gost
 
-# Start gost proxy chain: local 1080 -> Tailscale 1055 -> Phone 100.108.104.24:1080
+# Start gost proxy chain:
+# Listens on local 1080 (SOCKS5) and 8080 (HTTP)
+# Routes through Tailscale (1055) to Phone (100.108.104.24:1080)
 echo "Starting gost proxy chain..."
-gost -L=socks5://127.0.0.1:1080 -F=socks5://127.0.0.1:1055 -F=socks5://100.108.104.24:1080 &
+gost -L=socks5://127.0.0.1:1080 -L=http://127.0.0.1:8080 -F=socks5://127.0.0.1:1055 -F=socks5://100.108.104.24:1080 &
 
 # Start the Node.js backend
 echo "Starting Node..."

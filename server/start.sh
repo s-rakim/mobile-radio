@@ -1,46 +1,35 @@
 #!/bin/sh
+set -e
 
-# Start Tailscale in the background using userspace networking
+PHONE="${PHONE_PROXY:-100.108.104.24:8080}"
+TS="tailscale --socket=/tmp/tailscaled.sock"
+
+if [ -z "$TS_AUTHKEY" ]; then
+  echo "TS_AUTHKEY not set - add it in Render's environment settings"
+  exit 1
+fi
+
 echo "Starting Tailscale..."
-tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
-
-# Wait for the daemon to start
+tailscaled --tun=userspace-networking \
+  --socks5-server=localhost:1055 \
+  --state=mem: \
+  --socket=/tmp/tailscaled.sock &
 sleep 3
 
-# Authenticate Tailscale
-echo "Connecting to Tailnet..."
-tailscale up --authkey=${TS_AUTHKEY} --hostname=spitify-render --accept-routes
+$TS up --authkey="${TS_AUTHKEY}" --hostname="${TS_HOSTNAME:-spitify-render}" --accept-routes
 
-# Wait until Tailscale is fully connected
-echo "Waiting for Tailscale connection..."
-while ! tailscale status > /dev/null 2>&1; do
-  sleep 2
-done
-echo "Tailscale connected!"
+until $TS status >/dev/null 2>&1; do sleep 2; done
+echo "Tailscale connected"
 
-# --- DIAGNOSTIC TEST ---
-echo "Testing proxy connection to phone..."
-if curl -x socks5h://100.108.104.24:8080 -s -m 10 https://ifconfig.me; then
-    echo ""
-    echo "✅ SUCCESS: Phone proxy is working!"
-else
-    echo "❌ ERROR: Phone proxy is blocking connections."
-fi
-# -----------------------
+echo "Starting proxy chain -> phone ($PHONE)..."
+gost -L=socks5://127.0.0.1:1080 -L=http://127.0.0.1:8118 \
+     -F=socks5://127.0.0.1:1055 \
+     -F=socks5://$PHONE &
+sleep 2
 
-# Download gost v2 (Direct binary download)
-echo "Installing gost v2..."
-wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
-gzip -d gost-linux-amd64-2.11.5.gz
-mv gost-linux-amd64-2.11.5 /usr/local/bin/gost
-chmod +x /usr/local/bin/gost
+echo "Testing chain..."
+curl -sS -m 20 -x socks5h://127.0.0.1:1080 https://ifconfig.me \
+  && echo " <- exit IP (should be the phone's)" \
+  || echo "Chain test FAILED - check phone, pproxy and Tailscale"
 
-# Start gost proxy chain:
-# Listens on 1080 (SOCKS5) and 8080 (HTTP)
-# Routes via Tailscale (1055) to Phone (100.108.104.24:8080)
-echo "Starting gost proxy chain..."
-gost -L=socks5://127.0.0.1:1080 -L=http://127.0.0.1:8080 -F=socks5h://127.0.0.1:1055 -F=socks5h://100.108.104.24:8080 > /dev/null 2>&1 &
-
-# Start the Node.js backend
-echo "Starting Node..."
-node index.js
+exec node index.js

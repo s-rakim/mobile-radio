@@ -73,14 +73,12 @@ def search(query, limit=5):
     return {"results": tracks}
 
 
-def fetch_stream(video_id):
-    """Full extraction for one video: the playable audio link."""
-    with yt_dlp.YoutubeDL(build_opts()) as ydl:
-        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+# YouTube's Android VR client hands out audio links without the web player's JS challenge,
+# which is the slow part of extraction. Tried first; the full method is the fallback.
+FAST_CLIENTS = ["android_vr"]
 
-    if not info or not info.get("url"):
-        raise Exception("No playable audio")
 
+def pack(info):
     return {
         "title": info.get("title"),
         "artist": info.get("artist") or info.get("uploader"),
@@ -91,6 +89,28 @@ def fetch_stream(video_id):
         "source": "youtube",
         "id": f"yt-{info['id']}",
     }
+
+
+def fetch_stream(video_id):
+    """The playable audio link for one video: the fast way if it works, the full way if not."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    last_error = None
+
+    for clients in (FAST_CLIENTS, None):
+        opts = build_opts()
+        if clients:
+            opts["extractor_args"]["youtube"] = {"player_client": clients}
+            opts.pop("cookiefile", None)  # this client doesn't take cookies
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if info and info.get("url"):
+                return pack(info)
+        except Exception as e:  # noqa: BLE001 - any failure just means "try the next way"
+            last_error = e
+            print(f"[{'fast' if clients else 'full'}] {video_id}: {e}", file=sys.stderr)
+
+    raise last_error or Exception("No playable audio")
 
 
 def main(arg):
@@ -104,6 +124,38 @@ def main(arg):
         return {"error": str(e)}
 
 
+def serve():
+    """
+    Long-running mode: one JSON request per line on stdin, one JSON reply per line on stdout.
+    yt-dlp stays loaded between songs, and a few run side by side.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    out = threading.Lock()
+    pool = ThreadPoolExecutor(max_workers=int(os.environ.get("YT_WORKERS", "3")))
+
+    def handle(req):
+        result = main(req.get("arg", ""))
+        with out:
+            sys.stdout.write(json.dumps({"id": req.get("id"), "result": result}) + "\n")
+            sys.stdout.flush()
+
+    sys.stdout.write(json.dumps({"ready": True}) + "\n")
+    sys.stdout.flush()
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pool.submit(handle, json.loads(line))
+        except ValueError:
+            continue
+
+
 if __name__ == "__main__":
-    q = sys.argv[1] if len(sys.argv) > 1 else ""
-    print(json.dumps(main(q)))
+    if len(sys.argv) > 1 and sys.argv[1] == "--serve":
+        serve()
+    else:
+        q = sys.argv[1] if len(sys.argv) > 1 else ""
+        print(json.dumps(main(q)))

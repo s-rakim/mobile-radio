@@ -187,6 +187,13 @@ fun SearchInputScreen() {
     }
 
     val results = rememberLoad("search", debounced) { catalog.search(debounced) }
+    // The Spitify server's sources load on their own so a slow YouTube lookup never holds the rest up.
+    val youtube = rememberLoad("search-youtube", debounced) { catalog.searchYouTube(debounced) }
+    val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
+    val youtubeTracks = (youtube.state as? Load.Ready)?.data.orEmpty()
+    val openTracks = (openCatalogs.state as? Load.Ready)?.data.orEmpty()
+    val serverBusy = catalog.web.enabled && (youtube.state is Load.Loading || openCatalogs.state is Load.Loading)
+    val youtubeBusy = catalog.web.enabled && youtube.state is Load.Loading
 
     fun saveQuery() = library.addRecentSearch(query)
 
@@ -245,13 +252,27 @@ fun SearchInputScreen() {
             is Load.Loading -> SkeletonTrackList()
             is Load.Failed -> ErrorState(state.message, results.retry)
             is Load.Ready -> {
-                val data = state.data
+                val data = state.data.let { it.copy(tracks = youtubeTracks + it.tracks + openTracks) }
+                if (data.isEmpty && serverBusy) {
+                    SkeletonTrackList()
+                    return@Column
+                }
                 if (data.isEmpty) {
                     EmptyState("Couldn't find \"$debounced\"", "Try searching again using a different spelling or keyword.")
                     return@Column
                 }
                 val context = PlayContext("search:$debounced", "\"$debounced\" in Search", "SEARCH")
                 LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
+                    if (youtubeBusy && filter != ResultFilter.ARTISTS && filter != ResultFilter.PLAYLISTS) {
+                        item {
+                            Text(
+                                "Still checking YouTube…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SpitifyColors.TextSecondary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
                     when (filter) {
                         ResultFilter.TOP -> {
                             val topArtist = data.artists.firstOrNull { it.name.equals(debounced, ignoreCase = true) }

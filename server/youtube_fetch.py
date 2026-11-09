@@ -47,18 +47,24 @@ def build_opts():
 
 def fetch_song_stream(query):
     try:
-        with yt_dlp.YoutubeDL(build_opts()) as ydl:
-            result = ydl.extract_info(f"ytsearch1:{query}", download=False)
+        # "id:<videoId>" fetches one known video; anything else is a search
+        if query.startswith("id:"):
+            target = f"https://www.youtube.com/watch?v={query[3:]}"
+        else:
+            target = f"ytsearch1:{query}"
 
-        entries = result.get("entries") or []
-        if not entries or not entries[0].get("url"):
+        with yt_dlp.YoutubeDL(build_opts()) as ydl:
+            result = ydl.extract_info(target, download=False)
+
+        info = (result.get("entries") or [None])[0] if "entries" in result else result
+        if not info or not info.get("url"):
             raise Exception("No playable result")
-        info = entries[0]
 
         return {
             "title": info.get("title"),
             "artist": info.get("artist") or info.get("uploader"),
             "image": info.get("thumbnail"),
+            "duration": int(info.get("duration") or 0),
             "audioUrl": info["url"],
             "headers": info.get("http_headers", {}),
             "source": "youtube",

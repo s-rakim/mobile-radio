@@ -171,6 +171,7 @@ fun SettingsScreen() {
 
     var editingName by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf(false) }
+    var editingWeb by remember { mutableStateOf(false) }
     val catalog = LocalCatalog.current
     val scope = rememberCoroutineScope()
     var serverStatus by remember { mutableStateOf<String?>(null) }
@@ -178,6 +179,13 @@ fun SettingsScreen() {
         serverStatus = if (!catalog.server.enabled) null else {
             serverStatus = "Checking…"
             catalog.server.ping().fold({ "Connected" }, { "Not working: ${it.message}" })
+        }
+    }
+    var webStatus by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(settings.webServerUrl, settings.webServerEnabled) {
+        webStatus = if (!catalog.web.enabled) null else {
+            webStatus = "Checking…"
+            catalog.web.ping().fold({ "Connected" }, { "Not working: ${it.message}" })
         }
     }
     val localTracks by catalog.local.tracks.collectAsStateWithLifecycle()
@@ -287,6 +295,22 @@ fun SettingsScreen() {
         if (settings.subsonicUrl.isNotBlank()) {
             item {
                 ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
+            }
+        }
+
+        item {
+            SettingRow(
+                "Spitify server",
+                when {
+                    settings.webServerUrl.isBlank() -> "Adds YouTube, Internet Archive, ccMixter and Jamendo from the server you run at home."
+                    else -> settings.webServerUrl + (webStatus?.let { ". $it" } ?: "")
+                },
+                onClick = { editingWeb = true },
+            )
+        }
+        if (settings.webServerUrl.isNotBlank()) {
+            item {
+                ToggleRow("Use Spitify server", "Include its results in Search.", settings.webServerEnabled) { v -> set { it.copy(webServerEnabled = v) } }
             }
         }
 
@@ -451,6 +475,32 @@ fun SettingsScreen() {
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingServer = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingWeb) {
+        var url by remember { mutableStateOf(settings.webServerUrl) }
+        AlertDialog(
+            onDismissRequest = { editingWeb = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Spitify server") },
+            text = {
+                Column {
+                    Text(
+                        "Where your Spitify server runs. Your PC's Tailscale address like http://100.101.102.103:3000 never changes, or paste a trycloudflare.com link.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(url, { url = it.trim() }, "Server address")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(webServerUrl = url, webServerEnabled = true) }
+                    editingWeb = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingWeb = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 

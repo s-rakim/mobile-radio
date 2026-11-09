@@ -10,6 +10,7 @@ import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.LocalMusic
 import com.srakim.spitify.data.LyricsApi
 import com.srakim.spitify.data.SettingsStore
+import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.SubsonicApi
 import com.srakim.spitify.data.ThemeStore
 import com.srakim.spitify.playback.AudioEffects
@@ -32,7 +33,8 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val lyrics: LyricsApi by lazy { LyricsApi(httpClient) }
     val server: SubsonicApi by lazy { SubsonicApi(httpClient, settings) }
     val localMusic: LocalMusic by lazy { LocalMusic(this) }
-    val catalog: Catalog by lazy { Catalog(api, server, localMusic, settings) }
+    val webServer: SpitifyServerApi by lazy { SpitifyServerApi(httpClient, settings) }
+    val catalog: Catalog by lazy { Catalog(api, server, webServer, localMusic, settings) }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
@@ -46,6 +48,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         themes.restore()
+        webServer // created early so saved server links can be resolved during playback
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

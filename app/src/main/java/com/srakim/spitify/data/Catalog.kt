@@ -13,13 +13,14 @@ data class SearchResults(val tracks: List<Track>, val artists: List<Artist>, val
 }
 
 /**
- * Audius plus the listener's own music. Search only ever waits on Audius: songs on the phone are
+ * Audius plus the listener's own music, with the Spitify server's extra sources searched separately. Search only ever waits on Audius: songs on the phone are
  * already in memory, and a home server is asked only if one is set up, with a short time limit
  * so a server that's out of reach can't hold results up.
  */
 class Catalog(
     val audius: AudiusApi,
     val server: SubsonicApi,
+    val web: SpitifyServerApi,
     val local: LocalMusic,
     private val settings: SettingsStore,
 ) {
@@ -45,6 +46,23 @@ class Catalog(
         )
     }
 
+    /**
+     * YouTube through the Spitify server. Kept apart from [search] because it can take a while,
+     * so the screen shows everything else first and adds these when they arrive.
+     */
+    suspend fun searchYouTube(query: String): List<Track> {
+        val q = query.trim()
+        if (q.isEmpty() || !web.enabled) return emptyList()
+        return runCatching { web.youtube(q) }.getOrDefault(emptyList())
+    }
+
+    /** Archive, ccMixter and Jamendo through the Spitify server. Quick, but still optional. */
+    suspend fun searchOpenCatalogs(query: String): List<Track> {
+        val q = query.trim()
+        if (q.isEmpty() || !web.enabled) return emptyList()
+        return withTimeoutOrNull(OPEN_CATALOG_TIMEOUT_MS) { runCatching { web.openCatalogs(q) }.getOrNull() }.orEmpty()
+    }
+
     suspend fun artist(id: String): Pair<Artist?, List<Track>> = coroutineScope {
         if (SubsonicApi.isServer(id)) return@coroutineScope server.artist(id)
         val info = async { audius.artist(id) }
@@ -61,5 +79,6 @@ class Catalog(
 
     private companion object {
         const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
+        const val OPEN_CATALOG_TIMEOUT_MS = 15_000L
     }
 }

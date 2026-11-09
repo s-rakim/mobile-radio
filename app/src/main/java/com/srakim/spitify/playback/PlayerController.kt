@@ -18,6 +18,7 @@ import com.srakim.spitify.data.SettingsStore
 import java.io.File
 import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.PlayContext
+import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -297,7 +298,7 @@ class PlayerController(
     )
 }
 
-fun Track.remoteUri(): Uri = Uri.parse(streamUrl ?: AudiusApi.streamUrl(id))
+fun Track.remoteUri(): Uri = Uri.parse(SpitifyServerApi.resolve(streamUrl) ?: AudiusApi.streamUrl(id))
 
 /**
  * What the player should open. For Audius songs that's the direct storage-node link when there

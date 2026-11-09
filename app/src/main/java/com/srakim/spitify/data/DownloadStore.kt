@@ -84,7 +84,7 @@ class DownloadStore(
     fun bytesUsed(): Long = dir.listFiles()?.filter { it.extension == "mp3" }?.sumOf { it.length() } ?: 0L
 
     private fun fetch(track: Track) {
-        val request = Request.Builder().url(track.streamUrl ?: AudiusApi.streamUrl(track.id)).build()
+        val request = Request.Builder().url(SpitifyServerApi.resolve(track.streamUrl) ?: AudiusApi.streamUrl(track.id)).build()
         val tmp = File(dir, fileName(track.id) + ".part")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")

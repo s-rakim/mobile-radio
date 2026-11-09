@@ -12,14 +12,10 @@ captures/
 node_modules/
 .env
 npm-debug.log*
+__pycache__/
+cookies.txt
 
 # Signing keys stay off GitHub
 keystore/
 *.jks
 *.keystore
-# Signing keys stay off GitHub
-keystore/
-*.jks
-*.keystore
-cookies.txt
-__pycache__/

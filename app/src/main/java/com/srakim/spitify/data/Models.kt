@@ -22,11 +22,14 @@ data class Track(
      * player falls back to the regular stream address if it fails.
      */
     val directUrl: String? = null,
+    /** Where a song from the Spitify server came from, e.g. "YouTube" or "Jamendo". */
+    val origin: String? = null,
 ) {
     val source: String
         get() = when {
             id.startsWith(LocalMusic.ID_PREFIX) -> "This device"
             id.startsWith(SubsonicApi.ID_PREFIX) -> "Your server"
+            id.startsWith(SpitifyServerApi.ID_PREFIX) -> origin ?: "Spitify server"
             else -> "Audius"
         }
 

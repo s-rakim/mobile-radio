@@ -36,6 +36,9 @@ data class AppSettings(
     val subsonicUser: String = "",
     val subsonicPassword: String = "",
     val showLocalFiles: Boolean = true,
+    /** The Spitify web server at home, for YouTube and the open catalogues. */
+    val webServerEnabled: Boolean = true,
+    val webServerUrl: String = "",
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

@@ -4,7 +4,7 @@ const cors = require('cors');
 const { request } = require('undici');
 const catalogs = require('./services/catalogs');
 const youtubeRunner = require('./services/youtubeRunner');
-const { getTrack, invalidate } = youtubeRunner;
+const { getTrack, refetch, invalidate } = youtubeRunner;
 
 const app = express();
 app.set('trust proxy', true); // so req.protocol is https behind Cloudflare
@@ -50,27 +50,33 @@ app.get('/api/youtube', async (req, res) => {
 });
 
 // YouTube stream URLs only work from the IP that fetched them (this machine),
-// so the audio is piped through here instead of handed to the browser.
+// so the audio is piped through here instead of handed to the client.
+// An unknown or expired id gets fetched again, so saved links don't go stale.
 app.get('/stream/:id', async (req, res) => {
-  const track = getTrack(req.params.id);
-  if (!track) return res.status(404).json({ error: 'Track expired, search again' });
-
-  const headers = { ...track.headers };
-  delete headers['Accept-Encoding']; // keep the body raw so ranges line up
-  if (req.headers.range) headers.range = req.headers.range;
+  const id = req.params.id;
+  let track = getTrack(id) || (await refetch(id));
+  if (!track) return res.status(404).json({ error: 'Track not found' });
 
   let upstream;
-  try {
-    upstream = await request(track.audioUrl, { headers });
-  } catch (err) {
-    console.warn('[stream]', err.message);
-    return res.status(502).json({ error: 'Could not reach YouTube' });
-  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = { ...track.headers };
+    delete headers['Accept-Encoding']; // keep the body raw so ranges line up
+    if (req.headers.range) headers.range = req.headers.range;
 
-  if (upstream.statusCode === 403 || upstream.statusCode === 410) {
+    try {
+      upstream = await request(track.audioUrl, { headers });
+    } catch (err) {
+      console.warn('[stream]', err.message);
+      return res.status(502).json({ error: 'Could not reach YouTube' });
+    }
+
+    if (upstream.statusCode !== 403 && upstream.statusCode !== 410) break;
+
+    // link went stale: drop it and try once more with a fresh one
     upstream.body.destroy();
-    invalidate(req.params.id);
-    return res.status(410).json({ error: 'Stream URL expired, search again' });
+    invalidate(id);
+    track = attempt === 0 ? await refetch(id) : null;
+    if (!track) return res.status(410).json({ error: 'Stream URL expired, search again' });
   }
 
   res.status(upstream.statusCode);

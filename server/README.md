@@ -1,6 +1,6 @@
 # Spitify web server
 
-An Express server and a small test page that searches several catalogues at once, plus YouTube. The Android app doesn't need it; it talks to its sources directly.
+An Express server and a small test page that searches several catalogues at once, plus YouTube. The Android app works without it, but if you add the server's address under Settings → Music sources → Spitify server, the app gets YouTube, Internet Archive, ccMixter and Jamendo results too.
 
 It runs on my own machine so YouTube sees a normal home IP, and a Cloudflare Tunnel gives it a public HTTPS URL without opening router ports.
 
@@ -48,6 +48,15 @@ All search routes take `?q=` and answer 400 without it. The catalogue routes giv
 | `/health` | Returns `ok` |
 
 YouTube results take a while, so the page shows the other catalogues first and adds YouTube when it's ready.
+
+## Reaching it from the phone
+
+Two options for the address you give the app:
+
+- Your PC's Tailscale address, e.g. `http://100.101.102.103:3000` (`tailscale ip -4` shows it). It never changes, but Tailscale has to be on on the phone.
+- The `trycloudflare.com` link from the tunnel logs. Works without Tailscale, but changes whenever the tunnel restarts.
+
+YouTube songs saved in the app (likes, downloads) keep working after the address changes. The app only stores the song's id and asks whatever server address is set today, and the server fetches a fresh stream when an old one has expired.
 
 ## Why YouTube audio goes through the server
 

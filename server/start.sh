@@ -5,11 +5,20 @@ echo "Starting Tailscale..."
 tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
 
 # Wait for the daemon to start
-sleep 5
+sleep 3
 
-# Authenticate and connect to your Tailnet
+# Authenticate Tailscale
 echo "Connecting to Tailnet..."
 tailscale up --authkey=${TS_AUTHKEY} --hostname=spitify-render --accept-routes
+
+# Wait until Tailscale is fully connected to the network
+echo "Waiting for Tailscale connection..."
+tailscale status > /dev/null 2>&1
+while [ $? -ne 0 ]; do
+  sleep 2
+  tailscale status > /dev/null 2>&1
+done
+echo "Tailscale connected!"
 
 # Download gost for proxy chaining
 echo "Installing gost..."

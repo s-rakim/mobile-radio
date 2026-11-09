@@ -9,7 +9,7 @@ def fetch_song_stream(query):
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         
-        # 1. Locate and copy cookies
+        # 1. Locate and copy cookies to a writable location
         if os.path.exists('/etc/secrets/cookies.txt'):
             original_cookie_path = '/etc/secrets/cookies.txt'
         else:
@@ -23,7 +23,7 @@ def fetch_song_stream(query):
 
         pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
         
-        # Primary (SOCKS5) and Backup (HTTP) proxies
+        # Local ports opened by gost in start.sh
         primary_proxy = "socks5h://127.0.0.1:1080"
         backup_proxy = "http://127.0.0.1:8080"
 
@@ -41,6 +41,7 @@ def fetch_song_stream(query):
             }
         }
 
+        # Attach PO Token provider if available
         if pot_url:
             opts["extractor_args"]["youtubepot-bgutilhttp"] = {
                 "base_url": [pot_url]
@@ -50,6 +51,7 @@ def fetch_song_stream(query):
             opts["proxy"] = proxy
             print(f"Attempting extraction using proxy: {proxy}", file=sys.stderr)
             
+            # Search
             with yt_dlp.YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(f"ytsearch1:{query}", download=False)
                 
@@ -59,6 +61,7 @@ def fetch_song_stream(query):
 
             video = entries[0]
             
+            # Extract URL
             with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
                 info = ydl.extract_info(video["webpage_url"], download=False)
                 

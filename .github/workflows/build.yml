@@ -6,6 +6,9 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      # The web app has its own workflow and shouldn't cut a new Android release.
+      - 'webapp/**'
+      - '.github/workflows/webapp.yml'
   pull_request:
   workflow_dispatch:
 

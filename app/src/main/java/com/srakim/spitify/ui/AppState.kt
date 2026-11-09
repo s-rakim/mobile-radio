@@ -45,6 +45,18 @@ val LocalDataSaver = staticCompositionLocalOf { false }
 /** Space the floating mini player and nav bar take up, so lists can scroll clear of them. */
 val LocalBottomInset = staticCompositionLocalOf<Dp> { 0.dp }
 
+/**
+ * Width the screens actually get, after the side rail on tablets. Phones are under 600dp and
+ * keep their original layouts; anything wider gets more grid columns and the navigation rail.
+ */
+val LocalContentWidth = staticCompositionLocalOf<Dp> { 400.dp }
+
+const val WIDE_SCREEN_DP = 600
+
+/** Grid columns for a given width: the phone count below 600dp, more cells as the screen grows. */
+fun gridColumns(width: Dp, phone: Int, minCell: Dp): Int =
+    if (width < WIDE_SCREEN_DP.dp) phone else maxOf(phone, (width / minCell).toInt())
+
 enum class Tab(val route: String, val label: String) {
     HOME("home", "Home"),
     SEARCH("search", "Search"),

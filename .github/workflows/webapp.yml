@@ -1,0 +1,69 @@
+name: Web app
+
+# Builds the web version of Spitify (the one you install on Windows from Edge or Chrome).
+# Pull requests get a downloadable preview. Pushes to main publish it on GitHub Pages.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/webapp.yml'
+  pull_request:
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/webapp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: webapp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the scripts parse
+        run: |
+          node --check webapp/app.js
+          node --check webapp/api.js
+          node --check webapp/sw.js
+
+      - name: Stamp the version
+        run: |
+          echo "web $(date -u +%Y.%m.%d)-${GITHUB_SHA::7}" > webapp/version.txt
+          # A new cache name each build makes installed copies pick up the update.
+          sed -i "s/spitify-shell-v1/spitify-shell-${GITHUB_SHA::7}/" webapp/sw.js
+
+      - name: Upload preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spitify-web
+          path: webapp
+
+      - name: Upload for Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - id: deploy
+        uses: actions/deploy-pages@v4

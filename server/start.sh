@@ -19,7 +19,7 @@ done
 echo "Tailscale connected!"
 
 # --- DIAGNOSTIC TEST ---
-echo "Testing proxy connection via curl..."
+echo "Testing proxy connection to phone..."
 if curl -x socks5h://100.108.104.24:8080 -s -m 10 https://ifconfig.me; then
     echo ""
     echo "✅ SUCCESS: Phone proxy is working!"
@@ -28,14 +28,16 @@ else
 fi
 # -----------------------
 
-# Download gost v2
+# Download gost v2 (Direct binary download)
 echo "Installing gost v2..."
 wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
 gzip -d gost-linux-amd64-2.11.5.gz
 mv gost-linux-amd64-2.11.5 /usr/local/bin/gost
 chmod +x /usr/local/bin/gost
 
-# Start gost proxy chain (Uses port 8080 for the phone)
+# Start gost proxy chain:
+# Listens on 1080 (SOCKS5) and 8080 (HTTP)
+# Routes via Tailscale (1055) to Phone (100.108.104.24:8080)
 echo "Starting gost proxy chain..."
 gost -L=socks5://127.0.0.1:1080 -L=http://127.0.0.1:8080 -F=socks5h://127.0.0.1:1055 -F=socks5h://100.108.104.24:8080 > /dev/null 2>&1 &
 

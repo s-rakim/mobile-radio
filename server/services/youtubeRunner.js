@@ -1,5 +1,6 @@
 const { execFile } = require('child_process');
 const path = require('path');
+const searchYouTube = require('./ytSearch');
 
 const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
@@ -54,13 +55,23 @@ async function fetchTrack(query) {
   const cached = queries.get(key);
   if (cached && cached.expires > Date.now()) return cached.results;
 
-  const data = await once(`q:${key}`, clean);
-  if (data.error) {
-    console.warn('[youtube] Search error:', data.error);
-    return [{ error: data.error }];
+  // YouTube's own search API first (fast); yt-dlp only if that comes back empty or fails.
+  let found = [];
+  try {
+    found = await searchYouTube(clean);
+  } catch (err) {
+    console.warn('[youtube] Fast search failed, using yt-dlp:', err.message);
+  }
+  if (found.length === 0) {
+    const data = await once(`q:${key}`, clean);
+    if (data.error) {
+      console.warn('[youtube] Search error:', data.error);
+      return [{ error: data.error }];
+    }
+    found = data.results || [];
   }
 
-  const results = (data.results || []).map((t) => ({ ...t, streamPath: `/stream/${t.id}` }));
+  const results = found.map((t) => ({ ...t, streamPath: `/stream/${t.id}` }));
   queries.set(key, { results, expires: Date.now() + SEARCH_TTL });
 
   // Get the top result ready in the background, since it's the one people usually tap.

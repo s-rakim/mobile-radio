@@ -203,6 +203,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val pageHeight = maxHeight
+            val pageWidth = maxWidth
             // Landscape tablets and wide windows put the cover beside the controls instead of on top.
             val sideBySide = maxWidth > maxHeight && maxWidth >= 600.dp
             val header: @Composable () -> Unit = {
@@ -403,7 +404,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (sideBySide) {
-                    val coverSide = minOf(pageHeight - 72.dp, maxWidth * 0.45f).coerceAtLeast(160.dp)
+                    val coverSide = minOf(pageHeight - 72.dp, pageWidth * 0.45f).coerceAtLeast(160.dp)
                     Column(Modifier.fillMaxWidth().height(pageHeight.coerceAtLeast(360.dp)).padding(horizontal = 32.dp)) {
                         header()
                         Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {

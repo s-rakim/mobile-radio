@@ -1,7 +1,19 @@
 package com.srakim.spitify.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.EaseOutQuart
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,10 +59,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -83,6 +98,9 @@ import com.srakim.spitify.ui.sheets.CreateSheet
 import com.srakim.spitify.ui.sheets.MiniPlayer
 import com.srakim.spitify.ui.sheets.TrackMenuSheet
 import com.srakim.spitify.ui.theme.SpitifyColors
+import com.srakim.spitify.ui.components.Motion
+import com.srakim.spitify.ui.components.rememberPop
+import com.srakim.spitify.ui.components.springClick
 
 private data class TrackMenuRequest(val track: Track, val playlistId: String?)
 
@@ -121,6 +139,11 @@ fun SpitifyRoot(app: SpitifyApp) {
     LaunchedEffect(Unit) {
         app.player.messages.collect { actions.toast(it) }
     }
+    val bottomInset by animateDpAsState(
+        if (playback.current != null) 150.dp else 86.dp,
+        spring(stiffness = Spring.StiffnessMediumLow),
+        label = "bottomInset",
+    )
     LaunchedEffect(settings.showLocalFiles) {
         if (settings.showLocalFiles) app.localMusic.refresh()
     }
@@ -137,7 +160,7 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalCatalog provides app.catalog,
         LocalActions provides actions,
         LocalDataSaver provides settings.dataSaver,
-        LocalBottomInset provides if (playback.current != null) 150.dp else 86.dp,
+        LocalBottomInset provides bottomInset,
     ) {
         Box(
             Modifier
@@ -168,7 +191,11 @@ fun SpitifyRoot(app: SpitifyApp) {
                         .background(Brush.verticalGradient(listOf(Color.Transparent, SpitifyColors.Base.copy(alpha = 0.85f), SpitifyColors.Base))),
                 ) {
                     Column {
-                        if (playback.current != null) {
+                        AnimatedVisibility(
+                            visible = playback.current != null,
+                            enter = slideInVertically(Motion.settle()) { it } + fadeIn(tween(Motion.MEDIUM)) + expandVertically(Motion.settle()),
+                            exit = slideOutVertically(tween(Motion.MEDIUM)) { it } + fadeOut(tween(Motion.FAST)) + shrinkVertically(tween(Motion.MEDIUM)),
+                        ) {
                             MiniPlayer(onOpen = { playerOpen = true })
                         }
                         BottomBar(nav, onCreate = { createSheet = true })
@@ -178,8 +205,10 @@ fun SpitifyRoot(app: SpitifyApp) {
 
             AnimatedVisibility(
                 visible = playerOpen && playback.current != null,
-                enter = slideInVertically(tween(320)) { it } + fadeIn(tween(200)),
-                exit = slideOutVertically(tween(260)) { it } + fadeOut(tween(200)),
+                enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 420f)) { it } +
+                    fadeIn(tween(Motion.FAST)) +
+                    scaleIn(tween(Motion.SLOW, easing = FastOutSlowInEasing), initialScale = 0.94f, transformOrigin = TransformOrigin(0.5f, 1f)),
+                exit = slideOutVertically(tween(Motion.MEDIUM, easing = FastOutLinearInEasing)) { it } + fadeOut(tween(Motion.MEDIUM, delayMillis = 60)),
             ) {
                 NowPlayingScreen(onClose = { playerOpen = false })
             }
@@ -227,7 +256,28 @@ fun SpitifyRoot(app: SpitifyApp) {
 
 @Composable
 private fun AppNavHost(nav: NavHostController) {
-    NavHost(navController = nav, startDestination = Tab.HOME.route) {
+    NavHost(
+        navController = nav,
+        startDestination = Tab.HOME.route,
+        // Switching tabs is a quick cross-fade. Opening a page slides it in from the side
+        // over a fading parent, and back reverses it, so you always know which way you went.
+        enterTransition = {
+            if (isTabSwitch()) fadeIn(tween(Motion.MEDIUM))
+            else slideIntoContainer(SlideDirection.Start, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 4 } + fadeIn(tween(Motion.MEDIUM))
+        },
+        exitTransition = {
+            if (isTabSwitch()) fadeOut(tween(Motion.FAST))
+            else slideOutOfContainer(SlideDirection.Start, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 10 } + fadeOut(tween(Motion.MEDIUM))
+        },
+        popEnterTransition = {
+            if (isTabSwitch()) fadeIn(tween(Motion.MEDIUM))
+            else slideIntoContainer(SlideDirection.End, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 10 } + fadeIn(tween(Motion.MEDIUM))
+        },
+        popExitTransition = {
+            if (isTabSwitch()) fadeOut(tween(Motion.FAST))
+            else slideOutOfContainer(SlideDirection.End, tween(Motion.MEDIUM, easing = EaseOutQuart)) { it / 4 } + fadeOut(tween(Motion.MEDIUM))
+        },
+    ) {
         composable(Tab.HOME.route) { HomeScreen() }
         composable(Tab.SEARCH.route) { SearchScreen() }
         composable(Tab.LIBRARY.route) { LibraryScreen() }
@@ -249,6 +299,13 @@ private fun AppNavHost(nav: NavHostController) {
             composable("$p/${Dest.SERVER}") { ServerScreen() }
         }
     }
+}
+
+/** True when both ends of a navigation are top-level tabs (no "/" in the route). */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch(): Boolean {
+    val from = initialState.destination.route.orEmpty()
+    val to = targetState.destination.route.orEmpty()
+    return !from.contains('/') && !to.contains('/')
 }
 
 @Composable
@@ -288,18 +345,29 @@ private fun BottomBar(nav: NavHostController, onCreate: () -> Unit) {
 
 @Composable
 private fun NavItem(label: String, icon: ImageVector, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val tint = if (selected) SpitifyColors.TextPrimary else SpitifyColors.TextSecondary
+    val tint by animateColorAsState(
+        if (selected) SpitifyColors.TextPrimary else SpitifyColors.TextSecondary,
+        tween(Motion.MEDIUM),
+        label = "navTint",
+    )
+    val pop by rememberPop(selected)
     Column(
         modifier = modifier
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
+            .springClick(pressed = 0.86f, onClick = onClick)
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(26.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(26.dp)
+                .graphicsLayer {
+                    scaleX = pop
+                    scaleY = pop
+                },
+        )
         Spacer(Modifier.height(3.dp))
         Text(label, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing), color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }

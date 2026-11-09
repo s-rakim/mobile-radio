@@ -38,6 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.animation.core.Animatable
+import com.srakim.spitify.ui.components.Motion
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +69,7 @@ import com.srakim.spitify.ui.components.TrackRow
 import com.srakim.spitify.ui.components.WhiteButton
 import com.srakim.spitify.ui.components.formatLongDuration
 import com.srakim.spitify.ui.components.rememberArtworkColor
+import com.srakim.spitify.ui.components.rememberArtworkColors
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.sheets.CreatePlaylistDialog
 import com.srakim.spitify.ui.sheets.SheetOption
@@ -74,8 +79,18 @@ import kotlinx.coroutines.coroutineScope
 
 @Composable
 private fun CoverBlock(modifier: Modifier = Modifier, content: @Composable (Modifier) -> Unit) {
+    val scale = remember { Animatable(0.88f) }
+    LaunchedEffect(Unit) { scale.animateTo(1f, Motion.settle()) }
     Box(modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        content(Modifier.size(236.dp).shadow(24.dp, RoundedCornerShape(4.dp)))
+        content(
+            Modifier
+                .size(236.dp)
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                }
+                .shadow(24.dp, RoundedCornerShape(6.dp)),
+        )
     }
 }
 
@@ -121,14 +136,15 @@ fun PlaylistScreen(id: String) {
     val load = rememberLoad("playlist", id) { catalog.playlist(id) }
     val playlist = (load.state as? Load.Ready)?.data?.first
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
-    val color by rememberArtworkColor(playlist?.artwork)
+    val art = rememberArtworkColors(playlist?.artwork)
+    val color = art.primary
 
     LaunchedEffect(playlist?.id) {
         playlist?.let { library.recordVisit(RecentItem(RecentItem.Kind.PLAYLIST, it.id, it.name, "${it.label} • ${it.owner}", it.artwork)) }
     }
 
     val ctx = PlayContext("playlist:$id", playlist?.name ?: "Playlist", (playlist?.label ?: "Playlist").uppercase())
-    CollectionScaffold(title = playlist?.name.orEmpty(), color = color, header = {
+    CollectionScaffold(title = playlist?.name.orEmpty(), color = color, secondary = art.secondary, header = {
         when (val state = load.state) {
             is Load.Failed -> ErrorState(state.message, load.retry)
             else -> {
@@ -216,7 +232,7 @@ fun MixScreen(genre: String) {
 
     LaunchedEffect(genre) { library.recordVisit(RecentItem(RecentItem.Kind.MIX, genre, title, "Mix")) }
 
-    CollectionScaffold(title = title, color = tileColor, header = {
+    CollectionScaffold(title = title, color = tileColor, secondary = lerp(tileColor, Color.Black, 0.55f), header = {
         CoverBlock { m -> MixCover(genre, tileColor, m) }
         HeaderText(
             title,
@@ -271,10 +287,11 @@ fun MyPlaylistScreen(id: String) {
     val inPlaylist = playlist.tracks.mapTo(HashSet()) { it.id }
     val suggestions = (recommended.state as? Load.Ready)?.data.orEmpty().filterNot { it.id in inPlaylist }.take(10)
 
-    val color by rememberArtworkColor(playlist.tracks.firstOrNull()?.artwork)
+    val art = rememberArtworkColors(playlist.tracks.firstOrNull()?.artwork)
+    val color = art.primary
     val ctx = PlayContext("mine:$id", playlist.name, "PLAYLIST")
 
-    CollectionScaffold(title = playlist.name, color = color, header = {
+    CollectionScaffold(title = playlist.name, color = color, secondary = art.secondary, header = {
         CoverBlock { m -> MosaicArt(playlist.tracks.map { it.artwork }, m) }
         HeaderText(
             playlist.name,

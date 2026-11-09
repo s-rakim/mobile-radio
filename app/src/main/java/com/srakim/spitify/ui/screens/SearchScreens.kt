@@ -55,6 +55,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -63,6 +65,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.srakim.spitify.data.Artist
 import com.srakim.spitify.data.Genres
+import com.srakim.spitify.ui.components.springClick
+import com.srakim.spitify.ui.components.appear
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.Playlist
 import com.srakim.spitify.data.SearchResults
@@ -110,9 +114,9 @@ fun SearchScreen() {
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .springClick(pressed = 0.98f, onClick = actions::openSearchInput)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Color.White)
-                    .clickable(onClick = actions::openSearchInput)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -125,7 +129,9 @@ fun SearchScreen() {
             Text("Browse all", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
         }
         items(Genres.all, key = { it.name }) { genre ->
-            GenreTile(genre.name, Color(genre.color)) { actions.openMix(genre.name) }
+            Box(Modifier.appear(Genres.all.indexOf(genre))) {
+                GenreTile(genre.name, Color(genre.color)) { actions.openMix(genre.name) }
+            }
         }
     }
 }
@@ -140,9 +146,9 @@ private fun GenreTile(name: String, color: Color, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .aspectRatio(1.75f)
-            .clip(RoundedCornerShape(6.dp))
-            .background(color)
-            .clickable(onClick = onClick),
+            .springClick(pressed = 0.95f, onClick = onClick)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.08f), color, lerp(color, Color.Black, 0.35f)))),
     ) {
         Text(
             name,
@@ -287,6 +293,7 @@ fun SearchInputScreen() {
                                     liked = lib.liked.any { it.id == t.id },
                                     onClick = { saveQuery(); player.play(data.tracks, i, context) },
                                     onMore = { actions.showTrackMenu(t, null) },
+                                    modifier = Modifier.appear(i),
                                 )
                             }
                             if (data.artists.isNotEmpty()) {
@@ -318,6 +325,7 @@ fun SearchInputScreen() {
                                 liked = lib.liked.any { it.id == t.id },
                                 onClick = { saveQuery(); player.play(data.tracks, i, context) },
                                 onMore = { actions.showTrackMenu(t, null) },
+                                modifier = Modifier.appear(i),
                             )
                         }
                         ResultFilter.ARTISTS -> items(data.artists, key = { it.id }) { a ->

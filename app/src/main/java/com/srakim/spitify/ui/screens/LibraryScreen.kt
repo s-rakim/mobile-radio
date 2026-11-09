@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +57,7 @@ import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.components.Artwork
+import com.srakim.spitify.ui.components.appear
 import com.srakim.spitify.ui.components.EmptyState
 import com.srakim.spitify.ui.components.IconArt
 import com.srakim.spitify.ui.components.LikedSongsArt
@@ -222,8 +225,10 @@ fun LibraryScreen() {
             }
         }
 
-        items(entries, key = { it.key }) { e ->
-            if (grid) GridEntry(e, onClick = { open(e) }) else ListEntry(e, onClick = { open(e) })
+        itemsIndexed(entries, key = { _, e -> e.key }) { i, e ->
+            Box(Modifier.appear(i)) {
+                if (grid) GridEntry(e, onClick = { open(e) }) else ListEntry(e, onClick = { open(e) })
+            }
         }
 
         if (lib.playlists.isEmpty() && filter != LibraryFilter.ARTISTS) {
@@ -242,9 +247,9 @@ fun LibraryScreen() {
 @Composable
 private fun EntryArt(e: LibraryEntry, modifier: Modifier) {
     when {
-        e.special == "local" -> IconArt(Icons.Rounded.Folder, Color(0xFF2E7D5B), Color(0xFF123326), modifier)
-        e.special == "server" -> IconArt(Icons.Rounded.Dns, Color(0xFF3D5A80), Color(0xFF141E2E), modifier)
-        e.special == "recent" -> IconArt(Icons.Rounded.History, Color(0xFFB5651D), Color(0xFF3A1F0A), modifier)
+        e.special == "local" -> IconArt(Icons.Rounded.Folder, Color(0xFF059669), Color(0xFF064E3B), modifier)
+        e.special == "server" -> IconArt(Icons.Rounded.Dns, Color(0xFF0891B2), Color(0xFF164E63), modifier)
+        e.special == "recent" -> IconArt(Icons.Rounded.History, Color(0xFFEA580C), Color(0xFF9A3412), modifier)
         else -> KindArt(e, modifier)
     }
 }

@@ -102,28 +102,29 @@ data class PlayContext(
 object Genres {
     data class Genre(val name: String, val color: Long)
 
-    // Hand-mixed tile colours. Deliberately earthy and slightly desaturated so artwork stays the hero.
+    // Tile colours come from the ui-ux-pro-max product palettes (Creative Agency, Dating, Productivity,
+    // Sports, Recipe, Music Streaming and friends). Saturated enough to feel alive, dark enough for white text.
     val all = listOf(
-        Genre("Hip-Hop/Rap", 0xFFB5651D),
-        Genre("Electronic", 0xFF2D5D9F),
-        Genre("Pop", 0xFFC93F6E),
-        Genre("R&B/Soul", 0xFF8E3B5E),
-        Genre("Lo-Fi", 0xFF5F7352),
-        Genre("Alternative", 0xFF4B6E7A),
-        Genre("House", 0xFF6A4E9A),
-        Genre("Rock", 0xFF9C2F2F),
-        Genre("Ambient", 0xFF3E7C6E),
-        Genre("Jazz", 0xFFA6782C),
-        Genre("Latin", 0xFFC4502E),
-        Genre("Techno", 0xFF3A3F6B),
-        Genre("Dubstep", 0xFF5E3A7A),
-        Genre("Trap", 0xFF7D2E46),
-        Genre("Acoustic", 0xFF7A5C44),
-        Genre("Reggae", 0xFF4E8A3A),
-        Genre("Soundtrack", 0xFF5A6470),
-        Genre("Experimental", 0xFF2F6F8F),
-        Genre("Funk", 0xFFC0612B),
-        Genre("Classical", 0xFF6E5A7E),
+        Genre("Hip-Hop/Rap", 0xFFEA580C),
+        Genre("Electronic", 0xFF0891B2),
+        Genre("Pop", 0xFFDB2777),
+        Genre("R&B/Soul", 0xFF881337),
+        Genre("Lo-Fi", 0xFF0D9488),
+        Genre("Alternative", 0xFF0369A1),
+        Genre("House", 0xFF86198F),
+        Genre("Rock", 0xFFDC2626),
+        Genre("Ambient", 0xFF059669),
+        Genre("Jazz", 0xFFA16207),
+        Genre("Latin", 0xFFC2410C),
+        Genre("Techno", 0xFF4338CA),
+        Genre("Dubstep", 0xFF7C3AED),
+        Genre("Trap", 0xFFE11D48),
+        Genre("Acoustic", 0xFF9A3412),
+        Genre("Reggae", 0xFF16A34A),
+        Genre("Soundtrack", 0xFF1E3A8A),
+        Genre("Experimental", 0xFF164E63),
+        Genre("Funk", 0xFFD97706),
+        Genre("Classical", 0xFF831843),
     )
 
     fun colorFor(name: String): Long = all.firstOrNull { it.name.equals(name, ignoreCase = true) }?.color ?: 0xFF535353

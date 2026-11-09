@@ -1,5 +1,12 @@
 package com.srakim.spitify.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -7,6 +14,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,10 +52,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -70,10 +83,17 @@ fun TrackRow(
     showArtwork: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    val source = remember { MutableInteractionSource() }
+    val titleColor by animateColorAsState(
+        if (isCurrent) SpitifyColors.Accent else SpitifyColors.TextPrimary,
+        tween(Motion.MEDIUM),
+        label = "trackTitle",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onMore)
+            .combinedClickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick, onLongClick = onMore)
+            .pressScale(source, pressed = 0.985f)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -98,7 +118,7 @@ fun TrackRow(
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (isCurrent) SpitifyColors.Accent else SpitifyColors.TextPrimary,
+                color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -192,8 +212,8 @@ fun MediaCard(
     Column(
         modifier = modifier
             .width(width)
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
+            .appear()
+            .springClick(onClick = onClick)
             .padding(bottom = 4.dp),
     ) {
         val artModifier = Modifier.fillMaxWidth().aspectRatio(1f)
@@ -230,9 +250,9 @@ fun ShortcutTile(title: String, onClick: () -> Unit, modifier: Modifier = Modifi
     Row(
         modifier = modifier
             .height(56.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(SpitifyColors.Highlight.copy(alpha = 0.85f))
-            .clickable(onClick = onClick),
+            .springClick(pressed = 0.97f, onClick = onClick)
+            .clip(RoundedCornerShape(6.dp))
+            .background(SpitifyColors.Highlight.copy(alpha = 0.85f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         art(Modifier.size(56.dp))
@@ -248,19 +268,29 @@ fun ShortcutTile(title: String, onClick: () -> Unit, modifier: Modifier = Modifi
 
 @Composable
 fun Pill(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val container by animateColorAsState(
+        if (selected) SpitifyColors.Accent else SpitifyColors.Highlight,
+        tween(Motion.MEDIUM),
+        label = "pillBg",
+    )
+    val content by animateColorAsState(
+        if (selected) SpitifyColors.OnAccent else SpitifyColors.TextPrimary,
+        tween(Motion.MEDIUM),
+        label = "pillText",
+    )
     Box(
         modifier = modifier
             .heightIn(min = 34.dp)
+            .springClick(pressed = 0.92f, onClick = onClick)
             .clip(CircleShape)
-            .background(if (selected) SpitifyColors.Accent else SpitifyColors.Highlight)
-            .clickable(onClick = onClick)
+            .background(container)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = if (selected) SpitifyColors.OnAccent else SpitifyColors.TextPrimary,
+            color = content,
         )
     }
 }
@@ -278,16 +308,33 @@ fun PlayCircle(
     Box(
         modifier = modifier
             .size(size)
+            .springClick(pressed = 0.88f, onClick = onClick)
+            .shadow(10.dp, CircleShape, ambientColor = container, spotColor = container)
             .clip(CircleShape)
-            .background(container)
-            .clickable(onClick = onClick),
+            .background(container),
         contentAlignment = Alignment.Center,
     ) {
+        PlayPauseIcon(playing, tint = content, modifier = Modifier.size(size * 0.55f))
+    }
+}
+
+/** Play and pause swap with a quick spin-and-scale instead of a hard cut. */
+@Composable
+fun PlayPauseIcon(playing: Boolean, tint: Color, modifier: Modifier = Modifier) {
+    AnimatedContent(
+        targetState = playing,
+        transitionSpec = {
+            (scaleIn(Motion.press(), initialScale = 0.6f) + fadeIn(tween(Motion.FAST))) togetherWith
+                (scaleOut(tween(Motion.FAST), targetScale = 0.6f) + fadeOut(tween(Motion.FAST)))
+        },
+        contentAlignment = Alignment.Center,
+        label = "playPause",
+    ) { isPlaying ->
         Icon(
-            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-            contentDescription = if (playing) "Pause" else "Play",
-            tint = content,
-            modifier = Modifier.size(size * 0.55f),
+            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (isPlaying) "Pause" else "Play",
+            tint = tint,
+            modifier = modifier,
         )
     }
 }
@@ -298,9 +345,9 @@ fun ProfileBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(34.dp)
+            .springClick(pressed = 0.9f, onClick = onClick)
             .clip(CircleShape)
-            .background(SpitifyColors.Accent)
-            .clickable(onClick = onClick),
+            .background(Brush.linearGradient(listOf(SpitifyColors.Accent, lerp(SpitifyColors.Accent, Color.Black, 0.35f)))),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Rounded.Person, contentDescription = "Profile and settings", tint = SpitifyColors.OnAccent, modifier = Modifier.size(20.dp))
@@ -309,14 +356,7 @@ fun ProfileBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 fun SkeletonBlock(modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(4.dp)) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
-        label = "skeletonAlpha",
-    )
-    Box(modifier.clip(shape).alpha(alpha).background(SpitifyColors.Highlight))
+    Box(modifier.clip(shape).shimmer(SpitifyColors.Elevated, SpitifyColors.Pressed.copy(alpha = 0.55f)))
 }
 
 @Composable
@@ -365,9 +405,9 @@ fun ErrorState(message: String, onRetry: () -> Unit, modifier: Modifier = Modifi
         Spacer(Modifier.height(20.dp))
         Row(
             modifier = Modifier
+                .springClick(pressed = 0.94f, onClick = onRetry)
                 .clip(CircleShape)
                 .background(SpitifyColors.TextPrimary)
-                .clickable(onClick = onRetry)
                 .padding(horizontal = 22.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -400,9 +440,9 @@ fun WhiteButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
         modifier = modifier
             .heightIn(min = 44.dp)
             .widthIn(min = 120.dp)
+            .springClick(pressed = 0.94f, onClick = onClick)
             .clip(CircleShape)
             .background(SpitifyColors.TextPrimary)
-            .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -415,10 +455,9 @@ fun OutlineButton(label: String, onClick: () -> Unit, modifier: Modifier = Modif
     Box(
         modifier = modifier
             .heightIn(min = 34.dp)
+            .springClick(pressed = 0.94f, onClick = onClick)
             .clip(CircleShape)
-            .background(Color.Transparent)
             .border(BorderStroke(1.dp, SpitifyColors.TextMuted), CircleShape)
-            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {

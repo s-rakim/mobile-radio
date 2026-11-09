@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.srakim.spitify.data.Artist
@@ -47,6 +48,8 @@ import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.components.Artwork
+import com.srakim.spitify.ui.components.appear
+import com.srakim.spitify.ui.components.rememberArtworkColor
 import com.srakim.spitify.ui.components.ErrorState
 import com.srakim.spitify.ui.components.LikedSongsArt
 import com.srakim.spitify.ui.components.MediaCard
@@ -105,12 +108,14 @@ fun HomeScreen() {
         }
     }
 
-    val accentGlow = SpitifyColors.Accent.copy(alpha = 0.22f)
+    // The top of Home takes on the colour of whatever is playing, and falls back to the theme accent.
+    val nowColor by rememberArtworkColor(playback.current?.artwork, SpitifyColors.AccentDeep)
+    val glow = nowColor.copy(alpha = 0.6f)
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(0f to accentGlow, 0.25f to SpitifyColors.Background)),
+            .background(Brush.verticalGradient(0f to glow, 0.32f to SpitifyColors.Background)),
         contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp),
     ) {
         item {
@@ -141,9 +146,11 @@ fun HomeScreen() {
             val trendingPlaylists = (feed.state as? Load.Ready)?.data?.playlists.orEmpty()
             val tiles = buildShortcuts(lib.recentItems, lib.liked.isNotEmpty() || lib.recentItems.isEmpty(), trendingPlaylists, actions)
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                tiles.chunked(2).forEach { pair ->
+                tiles.chunked(2).forEachIndexed { row, pair ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEach { tile -> ShortcutTile(tile.title, tile.open, Modifier.weight(1f), tile.art) }
+                        pair.forEachIndexed { col, tile ->
+                            ShortcutTile(tile.title, tile.open, Modifier.weight(1f).appear(row * 2 + col), tile.art)
+                        }
                         if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
@@ -272,8 +279,8 @@ private fun TrackShelf(tracks: List<Track>, context: PlayContext, currentId: Str
 fun MixCover(genre: String, color: Color, modifier: Modifier) {
     Box(
         modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(Brush.linearGradient(listOf(color, color.copy(alpha = 0.55f).compositeOver(Color.Black)))),
+            .clip(RoundedCornerShape(6.dp))
+            .background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.1f), color, lerp(color, Color.Black, 0.5f)))),
     ) {
         Box(
             Modifier

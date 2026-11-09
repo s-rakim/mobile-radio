@@ -16,7 +16,9 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +61,12 @@ fun Artwork(
             modifier = Modifier.fillMaxSize(0.4f),
         )
         if (!source.isNullOrBlank()) {
+            val context = LocalContext.current
+            val request = remember(source) {
+                ImageRequest.Builder(context).data(source).crossfade(220).build()
+            }
             AsyncImage(
-                model = source,
+                model = request,
                 contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -117,16 +123,48 @@ fun MosaicArt(images: List<String?>, modifier: Modifier = Modifier, shape: Shape
     }
 }
 
+/** Two colours lifted from a cover: a rich one for the top of a gradient and a deeper one under it. */
+data class ArtworkColors(val primary: Color, val secondary: Color)
+
+/** Covers we've already measured, so going back to a song or playlist recolours instantly. */
+private object ArtworkColorCache {
+    private val cache = android.util.LruCache<String, ArtworkColors>(120)
+    fun get(url: String): ArtworkColors? = cache.get(url)
+    fun put(url: String, colors: ArtworkColors) {
+        cache.put(url, colors)
+    }
+}
+
 /**
  * Pulls a dark, saturated colour out of a cover so headers, the player and the mini player
  * can wear the artwork's colour. Animates between tracks.
  */
 @Composable
 fun rememberArtworkColor(url: String?, fallback: Color = SpitifyColors.Highlight): State<Color> {
+    val colors = rememberArtworkTargets(url, fallback)
+    return animateColorAsState(colors.primary, tween(durationMillis = 600), label = "artworkColor")
+}
+
+/** Both colours, each animating on its own when the cover changes. */
+@Composable
+fun rememberArtworkColors(url: String?, fallback: Color = SpitifyColors.Highlight): ArtworkColors {
+    val target = rememberArtworkTargets(url, fallback)
+    val primary by animateColorAsState(target.primary, tween(durationMillis = 600), label = "artPrimary")
+    val secondary by animateColorAsState(target.secondary, tween(durationMillis = 750), label = "artSecondary")
+    return ArtworkColors(primary, secondary)
+}
+
+@Composable
+private fun rememberArtworkTargets(url: String?, fallback: Color): ArtworkColors {
     val context = LocalContext.current
-    val target = produceState(fallback, url) {
+    val fallbackColors = ArtworkColors(fallback, lerp(fallback, Color.Black, 0.45f))
+    val target = produceState(url?.let(ArtworkColorCache::get) ?: fallbackColors, url, fallback) {
         if (url.isNullOrBlank()) {
-            value = fallback
+            value = fallbackColors
+            return@produceState
+        }
+        ArtworkColorCache.get(url)?.let {
+            value = it
             return@produceState
         }
         val request = ImageRequest.Builder(context)
@@ -136,20 +174,44 @@ fun rememberArtworkColor(url: String?, fallback: Color = SpitifyColors.Highlight
             .build()
         val result = context.imageLoader.execute(request)
         val bitmap = ((result as? SuccessResult)?.drawable as? BitmapDrawable)?.bitmap ?: return@produceState
-        val swatch = withContext(Dispatchers.Default) {
-            val palette = Palette.from(bitmap).maximumColorCount(16).generate()
-            palette.darkVibrantSwatch ?: palette.vibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch
+        val colors = withContext(Dispatchers.Default) {
+            val palette = Palette.from(bitmap).maximumColorCount(24).generate()
+            val main = palette.vibrantSwatch ?: palette.darkVibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch
+            val deep = palette.darkVibrantSwatch ?: palette.darkMutedSwatch ?: palette.dominantSwatch ?: main
+            if (main == null) {
+                null
+            } else {
+                val primary = tame(Color(main.rgb))
+                val secondary = deepen(Color((deep ?: main).rgb), primary)
+                ArtworkColors(primary, secondary)
+            }
         }
-        if (swatch != null) value = tame(Color(swatch.rgb))
+        if (colors != null) {
+            ArtworkColorCache.put(url, colors)
+            value = colors
+        }
     }
-    return animateColorAsState(target.value, tween(durationMillis = 700), label = "artworkColor")
+    return target.value
 }
 
-/** Keeps extracted colours dark enough for white text (4.5:1 or better). */
+/**
+ * Keeps extracted colours dark enough for white text (4.5:1 or better) while letting the hue
+ * come through. Near-grey covers stay grey rather than getting a random tint.
+ */
 private fun tame(color: Color): Color {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(color.toArgb(), hsv)
-    hsv[1] = hsv[1].coerceAtMost(0.8f)
-    hsv[2] = hsv[2].coerceIn(0.22f, 0.5f)
+    if (hsv[1] > 0.18f) hsv[1] = hsv[1].coerceIn(0.45f, 0.85f)
+    hsv[2] = hsv[2].coerceIn(0.24f, 0.5f)
     return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+/** The lower stop of a gradient: darker than [primary], and nudged off it if they came out the same. */
+private fun deepen(color: Color, primary: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    if (hsv[1] > 0.18f) hsv[1] = hsv[1].coerceIn(0.4f, 0.9f)
+    hsv[2] = hsv[2].coerceIn(0.12f, 0.3f)
+    val deep = Color(android.graphics.Color.HSVToColor(hsv))
+    return if (deep == primary) lerp(primary, Color.Black, 0.5f) else deep
 }

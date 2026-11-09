@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,6 +56,7 @@ import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.PlayCircle
+import com.srakim.spitify.ui.components.appear
 import com.srakim.spitify.ui.components.TrackRow
 import com.srakim.spitify.ui.sheets.SheetOption
 import com.srakim.spitify.ui.sheets.SpitifySheet
@@ -68,6 +71,7 @@ fun CollectionScaffold(
     title: String,
     color: Color,
     listState: LazyListState = rememberLazyListState(),
+    secondary: Color? = null,
     header: @Composable () -> Unit,
     content: LazyListScope.() -> Unit,
 ) {
@@ -85,14 +89,32 @@ fun CollectionScaffold(
             contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp),
         ) {
             item(key = "header") {
-                Column(
+                Box(
                     Modifier
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(color, color.copy(alpha = 0.55f), SpitifyColors.Background)))
-                        .statusBarsPadding()
-                        .padding(top = 52.dp),
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(lerp(color, Color.White, 0.06f), color, secondary ?: color.copy(alpha = 0.55f), SpitifyColors.Background),
+                            ),
+                        ),
                 ) {
-                    header()
+                    // The header drifts up slower than the list and fades as it goes, so scrolling
+                    // feels layered instead of flat.
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                if (listState.firstVisibleItemIndex == 0) {
+                                    val offset = listState.firstVisibleItemScrollOffset.toFloat()
+                                    translationY = offset * 0.35f
+                                    alpha = (1f - offset / 650f).coerceIn(0f, 1f)
+                                }
+                            }
+                            .statusBarsPadding()
+                            .padding(top = 52.dp),
+                    ) {
+                        header()
+                    }
                 }
             }
             content()
@@ -101,7 +123,7 @@ fun CollectionScaffold(
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(color.copy(alpha = animatedAlpha))
+                .background(lerp(color, Color.Black, 0.25f).copy(alpha = animatedAlpha))
                 .statusBarsPadding()
                 .height(52.dp)
                 .padding(horizontal = 4.dp),
@@ -238,6 +260,7 @@ fun LazyListScope.collectionTracks(
             onClick = { onPlay(i) },
             onMore = { onMore(t) },
             number = if (numbered) i + 1 else null,
+            modifier = Modifier.appear(i),
         )
     }
 }

@@ -21,16 +21,17 @@ def fetch_song_stream(query):
     # 2. Setup PO Token Provider URL
     pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
 
-    # 3. Build yt-dlp options with VERBOSE logging
+    # 3. Build yt-dlp options with the correct player clients
     opts = {
-        "verbose": True,       # <--- TURN ON LOGGING
-        "quiet": False,        # <--- TURN OFF QUIET
+        "quiet": True, 
+        "no_warnings": True, 
         "noplaylist": True,
         "default_search": "ytsearch1",
         "cookiefile": writable_cookie_path,
+        # Force the tv and mweb clients to bypass immediate LOGIN_REQUIRED errors
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "web"]
+                "player_client": ["tv", "mweb"]
             }
         }
     }

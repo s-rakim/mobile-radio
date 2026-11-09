@@ -26,7 +26,7 @@ mv gost-linux-amd64-2.11.5 /usr/local/bin/gost
 chmod +x /usr/local/bin/gost
 
 # Start gost proxy chain:
-# Listens on local 1080 (SOCKS5) and 8080 (HTTP)
+# Listens on local 1080 (SOCKS5) AND 8080 (HTTP)
 # Routes through Tailscale (1055) to Phone (100.108.104.24:1080)
 echo "Starting gost proxy chain..."
 gost -L=socks5://127.0.0.1:1080 -L=http://127.0.0.1:8080 -F=socks5://127.0.0.1:1055 -F=socks5://100.108.104.24:1080 &

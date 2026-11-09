@@ -33,6 +33,7 @@ def fetch_song_stream(query):
             "noplaylist": True,
             "default_search": "ytsearch1",
             "cookiefile": writable_cookie_path,
+            "socket_timeout": 15, # Don't hang forever
             "extractor_args": {
                 "youtube": {
                     "player_client": ["mweb", "tv"]

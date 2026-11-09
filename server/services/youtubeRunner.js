@@ -7,7 +7,6 @@ module.exports = async (query) => {
   return new Promise((resolve) => {
     execFile('python3', ['-u', SCRIPT_PATH, query], { timeout: 60000 }, (error, stdout, stderr) => {
       if (error) {
-        // Capture the Python traceback if it crashes
         const combinedError = `Error: ${error.message} | Stderr: ${stderr} | Stdout: ${stdout}`;
         console.warn('[youtube-docker] Python error:', combinedError);
         return resolve([{ error: combinedError }]); 

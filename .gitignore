@@ -19,3 +19,4 @@ cookies.txt
 keystore/
 *.jks
 *.keystore
+*.zip

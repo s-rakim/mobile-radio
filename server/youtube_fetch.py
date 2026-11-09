@@ -21,28 +21,37 @@ def fetch_song_stream(query):
     # 2. Setup PO Token Provider URL
     pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
 
-    # 3. Build yt-dlp options with the correct player clients
+    # 3. Setup Proxy URL (Your Phone's Tailscale IP)
+    proxy_url = os.environ.get("PROXY_URL")
+
+    # 4. Build yt-dlp options
     opts = {
         "quiet": True, 
         "no_warnings": True, 
         "noplaylist": True,
         "default_search": "ytsearch1",
         "cookiefile": writable_cookie_path,
-        # Force the tv and mweb clients to bypass immediate LOGIN_REQUIRED errors
+        # Force the mweb and tv clients to trigger the PO Token flow
         "extractor_args": {
             "youtube": {
-                "player_client": ["tv", "mweb"]
+                "player_client": ["mweb", "tv"]
             }
         }
     }
 
+    # Attach PO Token provider if available
     if pot_url:
         opts["extractor_args"]["youtubepot-bgutilhttp"] = {
             "base_url": [pot_url]
         }
 
+    # Attach Proxy if available
+    if proxy_url:
+        opts["proxy"] = proxy_url
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
+            # Fetch search results
             result = ydl.extract_info(f"ytsearch1:{query}", download=False)
             
         entries = result.get("entries") or []
@@ -51,6 +60,7 @@ def fetch_song_stream(query):
 
         video = entries[0]
         
+        # Extract the direct audio URL from the video
         with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
             info = ydl.extract_info(video["webpage_url"], download=False)
             

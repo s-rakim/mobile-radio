@@ -1,11 +1,12 @@
 FROM node:20-slim
 
-# Install system dependencies
+# Install system dependencies, Python, and Tailscale
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
     unzip \
+    && curl -fsSL https://tailscale.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno via npm
@@ -21,5 +22,8 @@ RUN npm install --omit=dev
 
 COPY . .
 
+# Make our startup script executable
+RUN chmod +x start.sh
+
 EXPOSE 3000
-CMD ["node", "index.js"]
+CMD ["./start.sh"]

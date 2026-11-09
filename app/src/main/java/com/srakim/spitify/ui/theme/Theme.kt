@@ -62,7 +62,7 @@ data class SpitifyPalette(
 /**
  * The built-in themes. Spitify (black and green) is the default. The rest are lifted from the
  * product palettes in ui-ux-pro-max: Music Streaming, Podcast Platform, Video Streaming/OTT,
- * Theater/Cinema, Music Creation and Photography Studio. Custom is whatever the listener builds.
+ * Theater/Cinema, Music Creation, Photography Studio, Gaming, Productivity and Fitness. Custom is whatever the listener builds.
  */
 object Palettes {
     val Spitify = SpitifyPalette.of("spitify", "Spitify", accent = Color(0xFF2AD46B), background = Color(0xFF121212))
@@ -72,8 +72,14 @@ object Palettes {
     val Spotlight = SpitifyPalette.of("spotlight", "Spotlight", accent = Color(0xFFCA8A04), background = Color(0xFF0F0F23), base = Color(0xFF08081A))
     val Studio = SpitifyPalette.of("studio", "Studio", accent = Color(0xFF8B5CF6), background = Color(0xFF0F172A), base = Color(0xFF080D1A))
     val Mono = SpitifyPalette.of("mono", "Mono", accent = Color(0xFFF8FAFC), background = Color(0xFF000000))
+    // Gaming palette's rose action colour on its deep navy.
+    val Neon = SpitifyPalette.of("neon", "Neon", accent = Color(0xFFF43F5E), background = Color(0xFF0F0F23), base = Color(0xFF08081A))
+    // Productivity teal on the slate used by the IoT and beat-maker palettes.
+    val Lagoon = SpitifyPalette.of("lagoon", "Lagoon", accent = Color(0xFF14B8A6), background = Color(0xFF0F172A), base = Color(0xFF080D1A))
+    // Fitness orange, warm and loud, on near-black stone.
+    val Ember = SpitifyPalette.of("ember", "Ember", accent = Color(0xFFF59E0B), background = Color(0xFF1C1917), base = Color(0xFF0C0A09))
 
-    val presets = listOf(Spitify, Midnight, Sunset, Cinema, Spotlight, Studio, Mono)
+    val presets = listOf(Spitify, Midnight, Sunset, Cinema, Spotlight, Studio, Neon, Lagoon, Ember, Mono)
 
     const val CUSTOM_ID = "custom"
 

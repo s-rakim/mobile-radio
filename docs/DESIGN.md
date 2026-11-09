@@ -45,6 +45,9 @@ Settings → Theme offers:
 | Cinema | `#000000` | `#E11D48` | ui-ux-pro-max Video Streaming palette |
 | Spotlight | `#0F0F23` | `#CA8A04` | ui-ux-pro-max Theater/Cinema palette |
 | Studio | `#0F172A` | `#8B5CF6` | ui-ux-pro-max Music Creation palette |
+| Neon | `#0F0F23` | `#F43F5E` | ui-ux-pro-max Gaming palette |
+| Lagoon | `#0F172A` | `#14B8A6` | ui-ux-pro-max Productivity palette |
+| Ember | `#1C1917` | `#F59E0B` | ui-ux-pro-max Fitness palette |
 | Mono | `#000000` | `#F8FAFC` | ui-ux-pro-max Photography Studio palette |
 | Custom | `#121212` or true black | any | You |
 
@@ -58,7 +61,38 @@ The choice is saved and applied before the first frame on the next launch.
 
 ## Genre colours
 
-The genre tiles and mix covers use a hand-mixed set of earthy, slightly muted colours (rust for hip-hop, deep blue for electronic, rose for pop, sage for lo-fi and so on), so the tiles look like a set and don't fight the artwork. They live in `Genres.all` in `Models.kt`.
+Genre tiles and mix covers use full-strength colours pulled from the ui-ux-pro-max product palettes: orange `#EA580C` for hip-hop, cyan `#0891B2` for electronic, pink `#DB2777` for pop, teal `#0D9488` for lo-fi, red `#DC2626` for rock, gold `#A16207` for jazz and so on. Each tile is a short diagonal gradient (a touch lighter at the top left, deeper at the bottom right) so it reads as lit rather than flat. All of them keep white bold text at 3:1 or better. They live in `Genres.all` in `Models.kt`.
+
+## Colour from artwork
+
+Every cover gets measured once with AndroidX Palette and cached (`ArtworkColors` in `Artwork.kt`). It gives two colours: a vibrant one, clamped so white text stays readable, and a deeper one for the bottom of gradients. Grey covers stay grey instead of picking up a random tint.
+
+Where it shows up:
+
+- The full player background runs from the cover's main colour into its deep colour, then into the theme background.
+- The mini player is a sideways gradient of the same two colours.
+- Playlist and album headers use both colours, and the slim top bar that fades in takes a darker shade of the main one.
+- Home's top glow follows whatever is playing, and falls back to the theme accent when nothing is.
+- Lyrics cards sit between the two colours.
+
+Colours cross-fade over about 600ms when the song changes, so the screen shifts mood rather than flashing.
+
+## Motion
+
+All motion settings live in `Motion.kt`, so the app moves with one feel.
+
+- **Press feedback.** Cards, tiles, pills and round buttons shrink slightly while held and spring back on release (`springClick`). Track rows keep their ripple and add a very small shrink. The play button, skip buttons and bottom tabs push in further because they're the things you hit most.
+- **Play and pause** swap with a quick scale and fade instead of a hard icon cut.
+- **Likes** pop the icon when you save a song.
+- **Pages** slide in from the right over a fading parent and slide back out on back. Switching tabs is a plain cross-fade.
+- **Player.** It rises from the bottom on a soft spring with a slight scale. Pull down from the top of the page to tuck it away; it shrinks and rounds its corners as you drag and closes past a threshold or on a quick flick. The cover sits back a little while paused, tilts and follows your finger when you swipe to skip, and the next cover scales into place.
+- **Mini player** slides up when something starts, follows a sideways swipe, and its title slides between songs.
+- **Progress** glides between the four position updates a second, so the bar never steps. The seek thumb and track swell while you hold them.
+- **Lists.** Rows, cards and tiles fade and lift in the first time they appear, with a short stagger capped at ten items. Scrolling back over them doesn't replay it.
+- **Headers.** Playlist headers drift up slower than the list and fade out; artist photos scroll at half speed for depth.
+- **Loading.** Skeletons have a soft highlight sweeping across them instead of blinking.
+
+Nearly everything animates scale, position and opacity on the graphics layer, which keeps it smooth on cheaper phones.
 
 ## Layout notes
 

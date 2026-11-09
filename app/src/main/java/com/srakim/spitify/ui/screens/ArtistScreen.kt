@@ -42,6 +42,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -101,12 +103,28 @@ fun ArtistScreen(id: String) {
     Box(Modifier.fillMaxSize().background(SpitifyColors.Background)) {
         LazyColumn(state = listState, contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
             item {
-                Box(Modifier.fillMaxWidth().height(340.dp).background(color)) {
-                    Artwork(heroImage, Modifier.fillMaxSize(), RoundedCornerShape(0.dp), fallback = Icons.Rounded.Person)
+                Box(Modifier.fillMaxWidth().height(340.dp).background(color).clipToBounds()) {
+                    Artwork(
+                        heroImage,
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                // Photo scrolls at half speed behind the name for a bit of depth.
+                                if (listState.firstVisibleItemIndex == 0) {
+                                    translationY = listState.firstVisibleItemScrollOffset * 0.5f
+                                }
+                            },
+                        RoundedCornerShape(0.dp),
+                        fallback = Icons.Rounded.Person,
+                    )
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, SpitifyColors.Background.copy(alpha = 0.9f)))),
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, color.copy(alpha = 0.25f), SpitifyColors.Background.copy(alpha = 0.95f)),
+                                ),
+                            ),
                     )
                     Row(
                         Modifier.align(Alignment.BottomStart).padding(16.dp),

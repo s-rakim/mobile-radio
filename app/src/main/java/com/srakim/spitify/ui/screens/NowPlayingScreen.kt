@@ -1,5 +1,18 @@
 package com.srakim.spitify.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -57,6 +70,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +80,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -80,11 +103,17 @@ import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.components.Artwork
 import com.srakim.spitify.ui.components.formatDuration
-import com.srakim.spitify.ui.components.rememberArtworkColor
+import com.srakim.spitify.ui.components.Motion
+import com.srakim.spitify.ui.components.PlayPauseIcon
+import com.srakim.spitify.ui.components.rememberArtworkColors
+import com.srakim.spitify.ui.components.rememberPop
+import com.srakim.spitify.ui.components.rememberSmoothProgress
+import com.srakim.spitify.ui.components.springClick
 import com.srakim.spitify.ui.sheets.SheetOption
 import com.srakim.spitify.ui.sheets.SpitifySheet
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -99,7 +128,47 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     val lib by library.state.collectAsStateWithLifecycle()
     val track = state.current ?: return
     val liked = lib.liked.any { it.id == track.id }
-    val color by rememberArtworkColor(track.artworkLarge ?: track.artwork, SpitifyColors.Highlight)
+    val art = rememberArtworkColors(track.artworkLarge ?: track.artwork, SpitifyColors.Highlight)
+    val color = art.primary
+    val likePop by rememberPop(liked)
+
+    // Pull down from the top of the page to tuck the player away, like a sheet.
+    val scope = rememberCoroutineScope()
+    val sheetY = remember { Animatable(0f) }
+    val dismissPx = with(LocalDensity.current) { 140.dp.toPx() }
+    val currentOnClose by rememberUpdatedState(onClose)
+    val pullToClose = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0f && sheetY.value > 0f) {
+                    val used = maxOf(available.y, -sheetY.value)
+                    scope.launch { sheetY.snapTo(sheetY.value + used) }
+                    return Offset(0f, used)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y > 0f && source == NestedScrollSource.UserInput) {
+                    scope.launch { sheetY.snapTo(sheetY.value + available.y) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (sheetY.value <= 0f) return Velocity.Zero
+                if (sheetY.value > dismissPx || available.y > 2400f) currentOnClose()
+                else sheetY.animateTo(0f, Motion.settle())
+                return available
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (sheetY.value > 0f) sheetY.animateTo(0f, Motion.settle())
+                return Velocity.Zero
+            }
+        }
+    }
 
     var queueOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -112,7 +181,23 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(color, lerp(color, Color.Black, 0.55f), SpitifyColors.Background)))
+            .graphicsLayer {
+                translationY = sheetY.value
+                val shrink = (sheetY.value / size.height).coerceIn(0f, 1f) * 0.08f
+                scaleX = 1f - shrink
+                scaleY = 1f - shrink
+                transformOrigin = TransformOrigin(0.5f, 0f)
+                shape = RoundedCornerShape(18.dp)
+                clip = sheetY.value > 1f
+            }
+            .background(
+                Brush.verticalGradient(
+                    0f to lerp(color, Color.White, 0.05f),
+                    0.45f to art.secondary,
+                    1f to SpitifyColors.Background,
+                ),
+            )
+            .nestedScroll(pullToClose)
             .clickable(enabled = false) {},
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -141,61 +226,101 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
                     Spacer(Modifier.weight(1f))
 
-                    var drag by remember { mutableFloatStateOf(0f) }
-                    Artwork(
-                        url = track.artworkLarge ?: track.artwork,
+                    // Cover follows a sideways swipe, sits back a little while paused, and the next
+                    // cover scales up into place when the song changes.
+                    val dragX = remember { Animatable(0f) }
+                    val coverScale by animateFloatAsState(
+                        if (state.isPlaying) 1f else 0.86f,
+                        spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
+                        label = "coverScale",
+                    )
+                    AnimatedContent(
+                        targetState = track,
+                        contentKey = { it.id },
+                        transitionSpec = {
+                            (fadeIn(tween(Motion.SLOW)) + scaleIn(Motion.settle(), initialScale = 0.9f)) togetherWith
+                                fadeOut(tween(Motion.FAST))
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .shadow(28.dp, RoundedCornerShape(6.dp))
+                            .graphicsLayer {
+                                translationX = dragX.value
+                                rotationZ = dragX.value / 90f
+                                scaleX = coverScale
+                                scaleY = coverScale
+                            }
                             .pointerInput(track.id) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
-                                        if (drag < -140f) player.next() else if (drag > 140f) player.previous()
-                                        drag = 0f
+                                        val moved = dragX.value
+                                        if (moved < -140f) player.next() else if (moved > 140f) player.previous()
+                                        scope.launch { dragX.animateTo(0f, Motion.press()) }
                                     },
-                                    onDragCancel = { drag = 0f },
-                                ) { _, amount -> drag += amount }
+                                    onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.press()) } },
+                                ) { change, amount ->
+                                    change.consume()
+                                    scope.launch { dragX.snapTo(dragX.value + amount * 0.9f) }
+                                }
                             },
-                        shape = RoundedCornerShape(6.dp),
-                        contentDescription = "Artwork for ${track.title}",
-                    )
+                        label = "cover",
+                    ) { shown ->
+                        Artwork(
+                            url = shown.artworkLarge ?: shown.artwork,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .shadow(32.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp),
+                            contentDescription = "Artwork for ${shown.title}",
+                        )
+                    }
 
                     Spacer(Modifier.weight(1f))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                track.title,
-                                style = MaterialTheme.typography.headlineSmall,
-                                maxLines = 1,
-                                modifier = Modifier.basicMarquee(),
-                            )
-                            Text(
-                                track.artist,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = SpitifyColors.TextPrimary.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable(enabled = track.artistId.isNotBlank()) { actions.openArtist(track.artistId) },
-                            )
-                            if (track.source != "Audius") {
-                                // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
-                                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                                val link = track.link
+                        AnimatedContent(
+                            targetState = track,
+                            contentKey = { it.id },
+                            transitionSpec = {
+                                (slideInVertically(Motion.settle()) { it / 3 } + fadeIn(tween(Motion.MEDIUM))) togetherWith
+                                    fadeOut(tween(Motion.FAST))
+                            },
+                            modifier = Modifier.weight(1f),
+                            label = "titleBlock",
+                        ) { track ->
+                            Column {
                                 Text(
-                                    when {
-                                        link != null -> "On ${track.source} ↗"
-                                        track.isLocal -> "From this device"
-                                        else -> "From your server"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = SpitifyColors.TextPrimary.copy(alpha = 0.55f),
+                                    track.title,
+                                    style = MaterialTheme.typography.headlineSmall,
                                     maxLines = 1,
-                                    modifier = Modifier
-                                        .padding(top = 2.dp)
-                                        .clickable(enabled = link != null) { link?.let { runCatching { uriHandler.openUri(it) } } },
+                                    modifier = Modifier.basicMarquee(),
                                 )
+                                Text(
+                                    track.artist,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = SpitifyColors.TextPrimary.copy(alpha = 0.7f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable(enabled = track.artistId.isNotBlank()) { actions.openArtist(track.artistId) },
+                                )
+                                if (track.source != "Audius") {
+                                    // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
+                                    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                                    val link = track.link
+                                    Text(
+                                        when {
+                                            link != null -> "On ${track.source} ↗"
+                                            track.isLocal -> "From this device"
+                                            else -> "From your server"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = SpitifyColors.TextPrimary.copy(alpha = 0.55f),
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .padding(top = 2.dp)
+                                            .clickable(enabled = link != null) { link?.let { runCatching { uriHandler.openUri(it) } } },
+                                    )
+                                }
                             }
                         }
                         IconButton(onClick = {
@@ -206,7 +331,12 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                 if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
                                 contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
                                 tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextPrimary,
-                                modifier = Modifier.size(28.dp),
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .graphicsLayer {
+                                        scaleX = likePop
+                                        scaleY = likePop
+                                    },
                             )
                         }
                     }
@@ -225,25 +355,21 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                             description = if (state.shuffle) "Turn shuffle off" else "Turn shuffle on",
                             onClick = player::toggleShuffle,
                         )
-                        IconButton(onClick = player::previous, modifier = Modifier.size(56.dp)) {
+                        Box(Modifier.size(56.dp).springClick(pressed = 0.82f, onClick = player::previous), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(40.dp))
                         }
                         Box(
                             Modifier
                                 .size(68.dp)
+                                .springClick(pressed = 0.88f, onClick = player::togglePlayPause)
+                                .shadow(16.dp, CircleShape, ambientColor = color, spotColor = color)
                                 .clip(CircleShape)
-                                .background(Color.White)
-                                .clickable(onClick = player::togglePlayPause),
+                                .background(Color.White),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                tint = Color.Black,
-                                modifier = Modifier.size(38.dp),
-                            )
+                            PlayPauseIcon(state.isPlaying, tint = Color.Black, modifier = Modifier.size(38.dp))
                         }
-                        IconButton(onClick = player::next, modifier = Modifier.size(56.dp)) {
+                        Box(Modifier.size(56.dp).springClick(pressed = 0.82f, onClick = player::next), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(40.dp))
                         }
                         ToggleIcon(
@@ -275,7 +401,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 }
 
             lyrics?.let { lyr ->
-                LyricsCard(lyr, state.positionMs, lerp(color, Color.Black, 0.25f), onExpand = { lyricsOpen = true })
+                LyricsCard(lyr, state.positionMs, lerp(art.secondary, color, 0.5f), onExpand = { lyricsOpen = true })
             }
 
             if (track.artistId.isNotBlank()) {
@@ -314,13 +440,23 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
 @Composable
 private fun ToggleIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, description: String, onClick: () -> Unit) {
+    val tint by animateColorAsState(if (on) SpitifyColors.Accent else SpitifyColors.TextPrimary, tween(Motion.MEDIUM), label = "toggleTint")
+    val dot by animateFloatAsState(if (on) 1f else 0f, Motion.pop(), label = "toggleDot")
     Box(contentAlignment = Alignment.BottomCenter) {
-        IconButton(onClick = onClick) {
-            Icon(icon, contentDescription = description, tint = if (on) SpitifyColors.Accent else SpitifyColors.TextPrimary, modifier = Modifier.size(26.dp))
+        Box(Modifier.size(48.dp).springClick(pressed = 0.8f, onClick = onClick), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(26.dp))
         }
-        if (on) {
-            Box(Modifier.padding(bottom = 2.dp).size(4.dp).clip(CircleShape).background(SpitifyColors.Accent))
-        }
+        Box(
+            Modifier
+                .padding(bottom = 2.dp)
+                .size(4.dp)
+                .graphicsLayer {
+                    scaleX = dot
+                    scaleY = dot
+                }
+                .clip(CircleShape)
+                .background(SpitifyColors.Accent),
+        )
     }
 }
 
@@ -329,8 +465,12 @@ private fun ToggleIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, on
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
-    val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+    val raw = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+    val progress by rememberSmoothProgress(raw.coerceIn(0f, 1f))
     val shown = if (dragging) dragValue else progress
+    // Thumb and track swell while you hold them so you can see what you're grabbing.
+    val thumb by animateDpAsState(if (dragging) 18.dp else 12.dp, Motion.press(), label = "thumb")
+    val trackHeight by animateDpAsState(if (dragging) 6.dp else 4.dp, Motion.press(), label = "track")
 
     Column {
         Slider(
@@ -349,12 +489,12 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
                 inactiveTrackColor = Color.White.copy(alpha = 0.25f),
             ),
             thumb = {
-                Box(Modifier.size(12.dp).clip(CircleShape).background(Color.White))
+                Box(Modifier.size(thumb).clip(CircleShape).background(Color.White))
             },
             track = { sliderState ->
                 SliderDefaults.Track(
                     sliderState = sliderState,
-                    modifier = Modifier.height(4.dp),
+                    modifier = Modifier.height(trackHeight),
                     colors = SliderDefaults.colors(
                         activeTrackColor = Color.White,
                         inactiveTrackColor = Color.White.copy(alpha = 0.25f),

@@ -1,7 +1,14 @@
 package com.srakim.spitify.ui.sheets
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,20 +24,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,8 +45,15 @@ import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
-import com.srakim.spitify.ui.components.rememberArtworkColor
+import com.srakim.spitify.ui.components.Motion
+import com.srakim.spitify.ui.components.PlayPauseIcon
+import com.srakim.spitify.ui.components.rememberArtworkColors
+import com.srakim.spitify.ui.components.rememberPop
+import com.srakim.spitify.ui.components.rememberSmoothProgress
+import com.srakim.spitify.ui.components.springClick
 import com.srakim.spitify.ui.theme.SpitifyColors
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** The floating bar above the tabs. Tap to open the player, swipe sideways to skip. */
 @Composable
@@ -52,24 +65,40 @@ fun MiniPlayer(onOpen: () -> Unit) {
     val lib by library.state.collectAsStateWithLifecycle()
     val track = state.current ?: return
     val liked = lib.liked.any { it.id == track.id }
-    val color by rememberArtworkColor(track.artwork, SpitifyColors.Highlight)
-    var drag by remember { mutableFloatStateOf(0f) }
+    val colors = rememberArtworkColors(track.artwork, SpitifyColors.Highlight)
+    val progress by rememberSmoothProgress(state.progress)
+    val likePop by rememberPop(liked)
+
+    // The bar follows your finger while you swipe, then springs home once the skip fires.
+    val scope = rememberCoroutineScope()
+    val dragX = remember { Animatable(0f) }
 
     Box(Modifier.padding(horizontal = 8.dp)) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .background(color)
-                .clickable(onClick = onOpen)
+                .springClick(pressed = 0.98f, onClick = onOpen)
+                .graphicsLayer {
+                    translationX = dragX.value
+                    alpha = 1f - (abs(dragX.value) / (size.width * 1.4f)).coerceIn(0f, 0.5f)
+                }
+                .clip(RoundedCornerShape(8.dp))
+                .background(Brush.horizontalGradient(listOf(colors.primary, colors.secondary)))
                 .pointerInput(track.id) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (drag < -120f) player.next() else if (drag > 120f) player.previous()
-                            drag = 0f
+                            val moved = dragX.value
+                            when {
+                                moved < -120f -> player.next()
+                                moved > 120f -> player.previous()
+                            }
+                            scope.launch { dragX.animateTo(0f, Motion.press()) }
                         },
-                        onDragCancel = { drag = 0f },
-                    ) { _, amount -> drag += amount }
+                        onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.press()) } },
+                    ) { change, amount ->
+                        change.consume()
+                        scope.launch { dragX.snapTo(dragX.value + amount * 0.8f) }
+                    }
                 },
         ) {
             Row(
@@ -79,17 +108,28 @@ fun MiniPlayer(onOpen: () -> Unit) {
                     .padding(start = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(track.artwork, Modifier.size(40.dp))
+                Artwork(track.artwork, Modifier.size(40.dp), RoundedCornerShape(4.dp))
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(track.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        track.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SpitifyColors.TextPrimary.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                AnimatedContent(
+                    targetState = track,
+                    transitionSpec = {
+                        (slideInVertically(Motion.settle()) { it / 2 } + fadeIn(tween(Motion.MEDIUM))) togetherWith
+                            (slideOutVertically(tween(Motion.FAST)) { -it / 2 } + fadeOut(tween(Motion.FAST)))
+                    },
+                    contentKey = { it.id },
+                    modifier = Modifier.weight(1f),
+                    label = "miniTitle",
+                ) { t ->
+                    Column {
+                        Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            t.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SpitifyColors.TextPrimary.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 IconButton(onClick = {
                     val now = library.toggleLike(track)
@@ -99,15 +139,19 @@ fun MiniPlayer(onOpen: () -> Unit) {
                         if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
                         contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
                         tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextPrimary,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = likePop
+                            scaleY = likePop
+                        },
                     )
                 }
-                IconButton(onClick = player::togglePlayPause) {
-                    Icon(
-                        if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint = SpitifyColors.TextPrimary,
-                        modifier = Modifier.size(30.dp),
-                    )
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .springClick(pressed = 0.8f, onClick = player::togglePlayPause),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PlayPauseIcon(state.isPlaying, tint = SpitifyColors.TextPrimary, modifier = Modifier.size(30.dp))
                 }
             }
             Box(
@@ -121,7 +165,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
                 Box(
                     Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(state.progress)
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .background(SpitifyColors.TextPrimary),
                 )
             }

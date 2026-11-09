@@ -7,34 +7,37 @@ import shutil
 def fetch_song_stream(query):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Locate the original cookies file
+    # 1. Locate and copy cookies to a writable location
     if os.path.exists('/etc/secrets/cookies.txt'):
         original_cookie_path = '/etc/secrets/cookies.txt'
     else:
         original_cookie_path = os.path.join(script_dir, 'cookies.txt')
 
-    # 2. Copy to a writable location in /tmp (Render's read-only fix)
     writable_cookie_path = None
     if os.path.exists(original_cookie_path):
         writable_cookie_path = '/tmp/cookies_working.txt'
         shutil.copyfile(original_cookie_path, writable_cookie_path)
 
-    # 3. Setup PO Token Provider URL
+    # 2. Setup PO Token Provider URL
     pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
 
+    # 3. Build yt-dlp options with VERBOSE logging
     opts = {
-        "quiet": True, 
-        "no_warnings": True, 
+        "verbose": True,       # <--- TURN ON LOGGING
+        "quiet": False,        # <--- TURN OFF QUIET
         "noplaylist": True,
         "default_search": "ytsearch1",
-        "cookiefile": writable_cookie_path, # Use the /tmp copy
+        "cookiefile": writable_cookie_path,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mweb", "web"]
+            }
+        }
     }
 
     if pot_url:
-        opts["extractor_args"] = {
-            "youtubepot-bgutilhttp": {
-                "base_url": [pot_url]
-            }
+        opts["extractor_args"]["youtubepot-bgutilhttp"] = {
+            "base_url": [pot_url]
         }
 
     try:

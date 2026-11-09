@@ -60,6 +60,7 @@ import androidx.navigation.compose.rememberNavController
 import com.srakim.spitify.SpitifyApp
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.screens.ArtistScreen
+import com.srakim.spitify.ui.screens.AccountScreen
 import com.srakim.spitify.ui.screens.DownloadsScreen
 import com.srakim.spitify.ui.sheets.UpdateDialog
 import com.srakim.spitify.ui.screens.EqualizerScreen
@@ -247,6 +248,7 @@ private fun AppNavHost(nav: NavHostController) {
             composable("$p/${Dest.DOWNLOADS}") { DownloadsScreen() }
             composable("$p/${Dest.LOCAL_FILES}") { LocalFilesScreen() }
             composable("$p/${Dest.SERVER}") { ServerScreen() }
+            composable("$p/${Dest.ACCOUNT}") { AccountScreen() }
         }
     }
 }

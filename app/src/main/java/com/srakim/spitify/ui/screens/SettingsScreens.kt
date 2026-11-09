@@ -232,6 +232,16 @@ fun SettingsScreen() {
             }
         }
 
+        group("Account")
+        item {
+            val acct by LocalApp.current.account.state.collectAsStateWithLifecycle()
+            SettingRow(
+                if (acct.signedIn) "Signed in as ${acct.username}" else "Log in",
+                if (acct.signedIn) "Your playlists and likes are saved on your server" else "Save your playlists and likes to your Spitify server",
+                onClick = actions::openAccount,
+            )
+        }
+
         group("Content and display")
         item { AppIconPicker() }
         item {

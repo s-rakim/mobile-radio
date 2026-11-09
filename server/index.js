@@ -3,12 +3,14 @@ const express = require('express');
 const cors = require('cors');
 const { request } = require('undici');
 const catalogs = require('./services/catalogs');
+const accounts = require('./services/accounts');
 const youtubeRunner = require('./services/youtubeRunner');
 const { getTrack, refetch, invalidate } = youtubeRunner;
 
 const app = express();
 app.set('trust proxy', true); // so req.protocol is https behind Cloudflare
 app.use(cors());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function readQuery(req, res) {
@@ -24,6 +26,47 @@ function baseUrl(req) {
 }
 
 app.get('/health', (req, res) => res.send('ok'));
+
+// ---- Accounts: sign in from the app and keep your library on this server ----
+
+function bearer(req) {
+  const h = req.get('authorization') || '';
+  return h.startsWith('Bearer ') ? h.slice(7) : null;
+}
+
+function signedIn(req, res, next) {
+  const user = accounts.userForToken(bearer(req));
+  if (!user) return res.status(401).json({ error: 'Sign in again' });
+  req.user = user;
+  next();
+}
+
+function authRoute(action) {
+  return (req, res) => {
+    if (accounts.rateLimited(req.ip)) return res.status(429).json({ error: 'Too many tries, wait a minute' });
+    try {
+      res.json(action(req.body?.username, req.body?.password));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.status ? err.message : 'Something went wrong' });
+    }
+  };
+}
+
+app.post('/api/auth/register', authRoute(accounts.register));
+app.post('/api/auth/login', authRoute(accounts.login));
+app.post('/api/auth/logout', (req, res) => {
+  accounts.logout(bearer(req));
+  res.json({ ok: true });
+});
+
+app.get('/api/library', signedIn, (req, res) => {
+  res.json({ username: req.user, ...accounts.getLibrary(req.user) });
+});
+
+app.put('/api/library', signedIn, (req, res) => {
+  if (!req.body || typeof req.body.library !== 'object') return res.status(400).json({ error: 'Missing library' });
+  res.json({ updatedAt: accounts.putLibrary(req.user, req.body.library, req.body.updatedAt) });
+});
 
 for (const [name, [search, empty]] of Object.entries(catalogs)) {
   app.get(`/api/${name}`, async (req, res) => {

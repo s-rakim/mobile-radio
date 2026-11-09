@@ -148,6 +148,18 @@ class LibraryStore(context: Context) {
 
     fun clearRecentSearches() = edit { it.copy(recentSearches = emptyList()) }
 
+    /** Swaps in the account's copy of likes, playlists and follows. History stays as it is. */
+    fun replaceSynced(lib: SyncedLibrary) {
+        edit {
+            it.copy(
+                liked = lib.liked,
+                playlists = lib.playlists,
+                savedPlaylists = lib.savedPlaylists,
+                followedArtists = lib.followedArtists,
+            )
+        }
+    }
+
     fun clearHistory() = edit { it.copy(recentTracks = emptyList(), recentItems = emptyList()) }
 
     private fun updatePlaylist(id: String, block: (UserPlaylist) -> UserPlaylist) {

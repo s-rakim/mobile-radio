@@ -58,6 +58,20 @@ Two options for the address you give the app:
 
 YouTube songs saved in the app (likes, downloads) keep working after the address changes. The app only stores the song's id and asks whatever server address is set today, and the server fetches a fresh stream when an old one has expired.
 
+## Accounts
+
+The app's Settings → Account page logs in to this server, and your playlists, liked songs, followed artists and saved playlists are kept here. Log in on a new phone or after a reinstall and they come back. Play history stays on each phone.
+
+Accounts and libraries are plain JSON files in the `spitify-data` Docker volume (passwords are scrypt hashes). Anyone who can reach the server can create an account, so once yours exists you can close sign-ups by putting `ALLOW_SIGNUPS=false` in `server/.env` and running `docker compose up -d`.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/auth/register` | `{username, password}`, returns a token |
+| `POST /api/auth/login` | same, for an existing account |
+| `POST /api/auth/logout` | signs this device out |
+| `GET /api/library` | your saved library (send `Authorization: Bearer <token>`) |
+| `PUT /api/library` | saves it |
+
 ## Why YouTube audio goes through the server
 
 YouTube's stream URLs only work from the IP that requested them. The server fetched it, so the server has to serve it.

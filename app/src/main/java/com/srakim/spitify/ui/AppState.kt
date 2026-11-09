@@ -66,6 +66,7 @@ object Dest {
     const val DOWNLOADS = "downloads"
     const val LOCAL_FILES = "local"
     const val SERVER = "server"
+    const val ACCOUNT = "account"
 }
 
 /** App-wide actions any screen can trigger: navigation, sheets, toasts. */
@@ -98,6 +99,7 @@ class AppActions(
     fun openThemes() = go("settings/theme")
     fun openHistory() = go("history")
     fun openDownloads() = go("downloads")
+    fun openAccount() = go("account")
     fun openLocalFiles() = go("local")
     fun openServer() = go("server")
     fun back() = nav.popBackStack()

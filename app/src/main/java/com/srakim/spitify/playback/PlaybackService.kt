@@ -48,7 +48,12 @@ class PlaybackService : MediaSessionService() {
 
         // Local files for downloads, OkHttp for everything streamed. The player gets its own,
         // quicker connect timeout: a dead storage node should fall back fast, not stall the song.
-        val playerHttp = app.httpClient.newBuilder().connectTimeout(6, TimeUnit.SECONDS).build()
+        // Longer read timeout: a YouTube song that wasn't prepared in advance makes the Spitify
+        // server fetch its audio link first, which can take a while before the first byte.
+        val playerHttp = app.httpClient.newBuilder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .build()
         val network = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(playerHttp))
         val dataSource = FallbackDataSource.Factory(network)
         val player = ExoPlayer.Builder(this)

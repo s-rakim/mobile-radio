@@ -18,11 +18,11 @@ while ! tailscale status > /dev/null 2>&1; do
 done
 echo "Tailscale connected!"
 
-# Download gost v3 for proxy chaining
-echo "Installing gost v3..."
-wget -q https://github.com/go-gost/gost/releases/download/v3.0.0/gost_3.0.0_linux_amd64.tar.gz
-tar -xzf gost_3.0.0_linux_amd64.tar.gz
-mv gost /usr/local/bin/gost
+# Download gost v2 (Direct binary download - no tar needed)
+echo "Installing gost v2..."
+wget -q https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
+gzip -d gost-linux-amd64-2.11.5.gz
+mv gost-linux-amd64-2.11.5 /usr/local/bin/gost
 chmod +x /usr/local/bin/gost
 
 # Start gost proxy chain: local 1080 -> Tailscale 1055 -> Phone 100.108.104.24:1080

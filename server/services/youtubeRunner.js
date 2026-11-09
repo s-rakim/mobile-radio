@@ -190,11 +190,13 @@ function getTrack(id) {
 
 // Fetches a fresh stream for a known video, so old links (liked songs,
 // downloads, a server restart) keep working instead of expiring.
-async function refetch(id) {
+// `full` skips the fast client, for when a link it gave was refused during playback.
+async function refetch(id, { full = false } = {}) {
   const videoId = id.replace(/^yt-/, '');
   if (!/^[\w-]{11}$/.test(videoId)) return null;
 
-  const data = await once(`id:${videoId}`, `id:${videoId}`);
+  const mode = full ? 'full' : 'id';
+  const data = await once(`${mode}:${videoId}`, `${mode}:${videoId}`);
   if (data.error || data.id !== id) {
     console.warn('[youtube] Refetch failed for', id, data.error || '');
     return null;

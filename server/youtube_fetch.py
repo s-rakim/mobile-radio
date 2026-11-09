@@ -91,12 +91,27 @@ def pack(info):
     }
 
 
-def fetch_stream(video_id):
-    """The playable audio link for one video: the fast way if it works, the full way if not."""
+def plays(ydl, info):
+    """Asks YouTube for the first two bytes. A link can look fine and still be refused."""
+    from yt_dlp.networking import Request
+
+    headers = dict(info.get("http_headers") or {})
+    headers["Range"] = "bytes=0-1"
+    with ydl.urlopen(Request(info["url"], headers=headers)) as response:
+        response.read(2)
+    return True
+
+
+def fetch_stream(video_id, fast=True):
+    """
+    The playable audio link for one video. Tries the fast client first, but only keeps its link
+    if YouTube really streams it; otherwise does the full extraction.
+    """
     url = f"https://www.youtube.com/watch?v={video_id}"
     last_error = None
+    ways = (FAST_CLIENTS, None) if fast and os.environ.get("YT_FAST", "1") != "0" else (None,)
 
-    for clients in (FAST_CLIENTS, None):
+    for clients in ways:
         opts = build_opts()
         if clients:
             opts["extractor_args"]["youtube"] = {"player_client": clients}
@@ -104,8 +119,8 @@ def fetch_stream(video_id):
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-            if info and info.get("url"):
-                return pack(info)
+                if info and info.get("url") and (not clients or plays(ydl, info)):
+                    return pack(info)
         except Exception as e:  # noqa: BLE001 - any failure just means "try the next way"
             last_error = e
             print(f"[{'fast' if clients else 'full'}] {video_id}: {e}", file=sys.stderr)
@@ -118,6 +133,8 @@ def main(arg):
         # "id:<videoId>" gets a stream link; anything else is a search
         if arg.startswith("id:"):
             return fetch_stream(arg[3:])
+        if arg.startswith("full:"):
+            return fetch_stream(arg[5:], fast=False)
         return search(arg)
     except Exception as e:
         print(traceback.format_exc(), file=sys.stderr)

@@ -1,0 +1,33 @@
+services:
+  spitify-backend:
+    build: .
+    container_name: spitify-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - YTDLP_POT_PROVIDER_URL=http://bgutil:4416
+      - JAMENDO_CLIENT_ID=${JAMENDO_CLIENT_ID:-}
+    volumes:
+      # keeps yt-dlp's player cache between restarts, so searches stay fast
+      - ytdlp-cache:/root/.cache/yt-dlp
+    depends_on:
+      - bgutil
+    restart: unless-stopped
+
+  bgutil:
+    image: brainicism/bgutil-ytdlp-pot-provider
+    container_name: spitify-pot
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: spitify-tunnel
+    command: tunnel --no-autoupdate --url http://spitify-backend:3000
+    depends_on:
+      - spitify-backend
+    restart: unless-stopped
+
+volumes:
+  ytdlp-cache:

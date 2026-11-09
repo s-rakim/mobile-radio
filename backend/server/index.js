@@ -1,0 +1,95 @@
+const path = require('path');
+const express = require('express');
+const cors = require('cors');
+const { request } = require('undici');
+const catalogs = require('./services/catalogs');
+const youtubeRunner = require('./services/youtubeRunner');
+const { getTrack, invalidate } = youtubeRunner;
+
+const app = express();
+app.set('trust proxy', true); // so req.protocol is https behind Cloudflare
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
+
+function readQuery(req, res) {
+  const q = (req.query.q || '').toString().trim().slice(0, 200);
+  if (!q) res.status(400).json({ error: 'Missing ?q=' });
+  return q;
+}
+
+// Stream links point back at whatever URL the request came in on, so they
+// keep working when a quick tunnel hands out a new address.
+function baseUrl(req) {
+  return process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+app.get('/health', (req, res) => res.send('ok'));
+
+for (const [name, [search, empty]] of Object.entries(catalogs)) {
+  app.get(`/api/${name}`, async (req, res) => {
+    const q = readQuery(req, res);
+    if (!q) return;
+    try {
+      res.json(await search(q));
+    } catch (err) {
+      console.warn(`[${name}]`, err.message);
+      res.json(empty);
+    }
+  });
+}
+
+app.get('/api/youtube', async (req, res) => {
+  const q = readQuery(req, res);
+  if (!q) return;
+
+  const results = await youtubeRunner(q);
+  const base = baseUrl(req);
+  res.json(
+    results.map(({ streamPath, ...r }) => (streamPath ? { ...r, audioUrl: `${base}${streamPath}` } : r))
+  );
+});
+
+// YouTube stream URLs only work from the IP that fetched them (this machine),
+// so the audio is piped through here instead of handed to the browser.
+app.get('/stream/:id', async (req, res) => {
+  const track = getTrack(req.params.id);
+  if (!track) return res.status(404).json({ error: 'Track expired, search again' });
+
+  const headers = { ...track.headers };
+  delete headers['Accept-Encoding']; // keep the body raw so ranges line up
+  if (req.headers.range) headers.range = req.headers.range;
+
+  let upstream;
+  try {
+    upstream = await request(track.audioUrl, { headers });
+  } catch (err) {
+    console.warn('[stream]', err.message);
+    return res.status(502).json({ error: 'Could not reach YouTube' });
+  }
+
+  if (upstream.statusCode === 403 || upstream.statusCode === 410) {
+    upstream.body.destroy();
+    invalidate(req.params.id);
+    return res.status(410).json({ error: 'Stream URL expired, search again' });
+  }
+
+  res.status(upstream.statusCode);
+  for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+    if (upstream.headers[h]) res.setHeader(h, upstream.headers[h]);
+  }
+
+  // stop downloading if the listener skips or leaves
+  res.on('close', () => upstream.body.destroy());
+  upstream.body.on('error', () => res.end());
+  upstream.body.pipe(res);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Spitify running on http://localhost:${PORT}`);
+
+  // one search at boot so yt-dlp caches the player JS before real requests
+  youtubeRunner('sauti sol melanin')
+    .then((r) => console.log('[warmup]', r[0]?.error || 'ok'))
+    .catch(() => {});
+});

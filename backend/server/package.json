@@ -1,7 +1,7 @@
 {
   "name": "spitify-backend",
-  "version": "1.0.0",
-  "description": "Music search and streaming backend, routed through a phone over Tailscale",
+  "version": "1.1.0",
+  "description": "Music search across open catalogues and YouTube, self-hosted behind a Cloudflare Tunnel",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

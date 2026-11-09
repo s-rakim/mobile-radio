@@ -2,6 +2,7 @@ const { execFile } = require('child_process');
 const path = require('path');
 
 const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
+const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 const TTL = 5 * 60 * 60 * 1000; // googlevideo URLs die around 6h
 
 const tracks = new Map();   // id -> { audioUrl, headers, expires }
@@ -10,22 +11,23 @@ const inflight = new Map(); // query -> Promise
 
 function runPython(query) {
   return new Promise((resolve) => {
-    execFile('python3', ['-u', SCRIPT_PATH, query], { timeout: 60000 }, (error, stdout, stderr) => {
+    execFile(PYTHON, ['-u', SCRIPT_PATH, query], { timeout: 90000 }, (error, stdout, stderr) => {
       if (error) {
-        console.warn('[youtube-docker] Python failed:', error.message, '\n', stderr);
+        console.warn('[youtube] Python failed:', error.message, '\n', stderr);
         return resolve({ error: 'Extraction failed' });
       }
       const last = stdout.trim().split('\n').pop();
       try {
         resolve(JSON.parse(last));
       } catch {
-        console.warn('[youtube-docker] Bad JSON:', stdout, '\n', stderr);
+        console.warn('[youtube] Bad JSON:', stdout, '\n', stderr);
         resolve({ error: 'Extraction failed' });
       }
     });
   });
 }
 
+// Returns stream paths like /stream/yt-abc123; index.js adds the host.
 async function fetchTrack(query) {
   const key = query.trim().toLowerCase();
 
@@ -38,7 +40,7 @@ async function fetchTrack(query) {
   const data = await inflight.get(key);
 
   if (data.error) {
-    console.warn('[youtube-docker] Scraper error:', data.error);
+    console.warn('[youtube] Scraper error:', data.error);
     return [{ error: data.error }];
   }
 
@@ -49,7 +51,7 @@ async function fetchTrack(query) {
     title: data.title,
     artist: data.artist,
     image: data.image,
-    audioUrl: `${process.env.PUBLIC_URL || ''}/stream/${data.id}`,
+    streamPath: `/stream/${data.id}`,
     source: data.source,
     id: data.id,
   };

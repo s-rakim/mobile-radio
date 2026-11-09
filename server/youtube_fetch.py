@@ -23,8 +23,8 @@ def fetch_song_stream(query):
 
         pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL")
         
-        # Proxy definitions
-        primary_proxy = os.environ.get("PROXY_URL", "socks5h://127.0.0.1:1080")
+        # Primary (SOCKS5) and Backup (HTTP) proxies
+        primary_proxy = "socks5h://127.0.0.1:1080"
         backup_proxy = "http://127.0.0.1:8080"
 
         opts = {
@@ -33,7 +33,7 @@ def fetch_song_stream(query):
             "noplaylist": True,
             "default_search": "ytsearch1",
             "cookiefile": writable_cookie_path,
-            "socket_timeout": 15, # Don't hang forever
+            "socket_timeout": 15,
             "extractor_args": {
                 "youtube": {
                     "player_client": ["mweb", "tv"]
@@ -50,7 +50,6 @@ def fetch_song_stream(query):
             opts["proxy"] = proxy
             print(f"Attempting extraction using proxy: {proxy}", file=sys.stderr)
             
-            # Search
             with yt_dlp.YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(f"ytsearch1:{query}", download=False)
                 
@@ -60,7 +59,6 @@ def fetch_song_stream(query):
 
             video = entries[0]
             
-            # Extract URL
             with yt_dlp.YoutubeDL({**opts, "format": "bestaudio/best"}) as ydl:
                 info = ydl.extract_info(video["webpage_url"], download=False)
                 

@@ -45,31 +45,57 @@ def build_opts():
     return opts
 
 
-def fetch_song_stream(query):
-    try:
-        # "id:<videoId>" fetches one known video; anything else is a search
-        if query.startswith("id:"):
-            target = f"https://www.youtube.com/watch?v={query[3:]}"
-        else:
-            target = f"ytsearch1:{query}"
+def search(query, limit=5):
+    """Quick list lookup: titles, ids and thumbnails, no stream links."""
+    opts = build_opts()
+    opts["extract_flat"] = "in_playlist"
+    opts.pop("format", None)
 
-        with yt_dlp.YoutubeDL(build_opts()) as ydl:
-            result = ydl.extract_info(target, download=False)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        result = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
 
-        info = (result.get("entries") or [None])[0] if "entries" in result else result
-        if not info or not info.get("url"):
-            raise Exception("No playable result")
-
-        return {
-            "title": info.get("title"),
-            "artist": info.get("artist") or info.get("uploader"),
-            "image": info.get("thumbnail"),
-            "duration": int(info.get("duration") or 0),
-            "audioUrl": info["url"],
-            "headers": info.get("http_headers", {}),
+    tracks = []
+    for e in result.get("entries") or []:
+        vid = e.get("id")
+        if not vid or e.get("live_status") == "is_live":
+            continue
+        tracks.append({
+            "title": e.get("title"),
+            "artist": e.get("channel") or e.get("uploader"),
+            "image": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+            "duration": int(e.get("duration") or 0),
             "source": "youtube",
-            "id": f"yt-{info['id']}",
-        }
+            "id": f"yt-{vid}",
+        })
+    return {"results": tracks}
+
+
+def fetch_stream(video_id):
+    """Full extraction for one video: the playable audio link."""
+    with yt_dlp.YoutubeDL(build_opts()) as ydl:
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+
+    if not info or not info.get("url"):
+        raise Exception("No playable audio")
+
+    return {
+        "title": info.get("title"),
+        "artist": info.get("artist") or info.get("uploader"),
+        "image": info.get("thumbnail"),
+        "duration": int(info.get("duration") or 0),
+        "audioUrl": info["url"],
+        "headers": info.get("http_headers", {}),
+        "source": "youtube",
+        "id": f"yt-{info['id']}",
+    }
+
+
+def main(arg):
+    try:
+        # "id:<videoId>" gets a stream link; anything else is a search
+        if arg.startswith("id:"):
+            return fetch_stream(arg[3:])
+        return search(arg)
     except Exception as e:
         print(traceback.format_exc(), file=sys.stderr)
         return {"error": str(e)}
@@ -77,4 +103,4 @@ def fetch_song_stream(query):
 
 if __name__ == "__main__":
     q = sys.argv[1] if len(sys.argv) > 1 else ""
-    print(json.dumps(fetch_song_stream(q)))
+    print(json.dumps(main(q)))

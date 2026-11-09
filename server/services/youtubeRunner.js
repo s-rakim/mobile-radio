@@ -4,9 +4,10 @@ const path = require('path');
 const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 const TTL = 5 * 60 * 60 * 1000; // googlevideo URLs die around 6h
+const SEARCH_TTL = 24 * 60 * 60 * 1000; // search results don't expire, keep them a day
 
 const tracks = new Map();   // id -> { audioUrl, headers, expires }
-const queries = new Map();  // query -> { result, expires }
+const queries = new Map();  // query -> { results, expires }
 const inflight = new Map(); // job key -> Promise
 
 function runPython(arg) {
@@ -43,32 +44,29 @@ function remember(data) {
   });
 }
 
-// Search. Returns stream paths like /stream/yt-abc123; index.js adds the host.
+// Search. Only looks up titles and ids, which is quick; the audio link is
+// fetched when a song is played (see refetch). Returns stream paths like
+// /stream/yt-abc123; index.js adds the host.
 async function fetchTrack(query) {
   const clean = query.replace(/^id:/i, '').trim();
   const key = clean.toLowerCase();
 
   const cached = queries.get(key);
-  if (cached && cached.expires > Date.now()) return [cached.result];
+  if (cached && cached.expires > Date.now()) return cached.results;
 
   const data = await once(`q:${key}`, clean);
   if (data.error) {
-    console.warn('[youtube] Scraper error:', data.error);
+    console.warn('[youtube] Search error:', data.error);
     return [{ error: data.error }];
   }
 
-  remember(data);
-  const result = {
-    title: data.title,
-    artist: data.artist,
-    image: data.image,
-    duration: data.duration || 0,
-    streamPath: `/stream/${data.id}`,
-    source: data.source,
-    id: data.id,
-  };
-  queries.set(key, { result, expires: Date.now() + TTL });
-  return [result];
+  const results = (data.results || []).map((t) => ({ ...t, streamPath: `/stream/${t.id}` }));
+  queries.set(key, { results, expires: Date.now() + SEARCH_TTL });
+
+  // Get the top result ready in the background, since it's the one people usually tap.
+  if (results[0] && !getTrack(results[0].id)) refetch(results[0].id).catch(() => {});
+
+  return results;
 }
 
 function getTrack(id) {
@@ -98,7 +96,6 @@ async function refetch(id) {
 
 function invalidate(id) {
   tracks.delete(id);
-  for (const [k, v] of queries) if (v.result.id === id) queries.delete(k);
 }
 
 module.exports = fetchTrack;

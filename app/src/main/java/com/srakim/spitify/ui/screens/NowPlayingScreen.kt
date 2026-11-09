@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -202,145 +203,144 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val pageHeight = maxHeight
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                Column(Modifier.fillMaxWidth().height(pageHeight.coerceAtLeast(560.dp)).padding(horizontal = 24.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onClose) {
-                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close player", modifier = Modifier.size(30.dp))
-                        }
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            val ctx = state.context
-                            Text(
-                                if (ctx != null) "PLAYING FROM ${ctx.label}" else "NOW PLAYING",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
-                            )
-                            if (ctx != null) {
-                                Text(ctx.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "More options")
+            // Landscape tablets and wide windows put the cover beside the controls instead of on top.
+            val sideBySide = maxWidth > maxHeight && maxWidth >= 600.dp
+            val header: @Composable () -> Unit = {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close player", modifier = Modifier.size(30.dp))
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val ctx = state.context
+                        Text(
+                            if (ctx != null) "PLAYING FROM ${ctx.label}" else "NOW PLAYING",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
+                        )
+                        if (ctx != null) {
+                            Text(ctx.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-
-                    Spacer(Modifier.weight(1f))
-
-                    // Cover follows a sideways swipe, sits back a little while paused, and the next
-                    // cover scales up into place when the song changes.
-                    val dragX = remember { Animatable(0f) }
-                    val coverScale by animateFloatAsState(
-                        if (state.isPlaying) 1f else 0.86f,
-                        spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-                        label = "coverScale",
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More options")
+                    }
+                }
+            }
+            val cover: @Composable (Modifier) -> Unit = { coverModifier ->
+                // Cover follows a sideways swipe, sits back a little while paused, and the next
+                // cover scales up into place when the song changes.
+                val dragX = remember { Animatable(0f) }
+                val coverScale by animateFloatAsState(
+                    if (state.isPlaying) 1f else 0.86f,
+                    spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
+                    label = "coverScale",
+                )
+                AnimatedContent(
+                    targetState = track,
+                    contentKey = { it.id },
+                    transitionSpec = {
+                        (fadeIn(tween(Motion.SLOW)) + scaleIn(Motion.settle(), initialScale = 0.9f)) togetherWith
+                            fadeOut(tween(Motion.FAST))
+                    },
+                    modifier = coverModifier
+                        .graphicsLayer {
+                            translationX = dragX.value
+                            rotationZ = dragX.value / 90f
+                            scaleX = coverScale
+                            scaleY = coverScale
+                        }
+                        .pointerInput(track.id) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    val moved = dragX.value
+                                    if (moved < -140f) player.next() else if (moved > 140f) player.previous()
+                                    scope.launch { dragX.animateTo(0f, Motion.press()) }
+                                },
+                                onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.press()) } },
+                            ) { change, amount ->
+                                change.consume()
+                                scope.launch { dragX.snapTo(dragX.value + amount * 0.9f) }
+                            }
+                        },
+                    label = "cover",
+                ) { shown ->
+                    Artwork(
+                        url = shown.artworkLarge ?: shown.artwork,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .shadow(32.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
+                        shape = RoundedCornerShape(8.dp),
+                        contentDescription = "Artwork for ${shown.title}",
                     )
+                }
+            }
+            val titleRow: @Composable () -> Unit = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     AnimatedContent(
                         targetState = track,
                         contentKey = { it.id },
                         transitionSpec = {
-                            (fadeIn(tween(Motion.SLOW)) + scaleIn(Motion.settle(), initialScale = 0.9f)) togetherWith
+                            (slideInVertically(Motion.settle()) { it / 3 } + fadeIn(tween(Motion.MEDIUM))) togetherWith
                                 fadeOut(tween(Motion.FAST))
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .graphicsLayer {
-                                translationX = dragX.value
-                                rotationZ = dragX.value / 90f
-                                scaleX = coverScale
-                                scaleY = coverScale
-                            }
-                            .pointerInput(track.id) {
-                                detectHorizontalDragGestures(
-                                    onDragEnd = {
-                                        val moved = dragX.value
-                                        if (moved < -140f) player.next() else if (moved > 140f) player.previous()
-                                        scope.launch { dragX.animateTo(0f, Motion.press()) }
+                        modifier = Modifier.weight(1f),
+                        label = "titleBlock",
+                    ) { track ->
+                        Column {
+                            Text(
+                                track.title,
+                                style = MaterialTheme.typography.headlineSmall,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee(),
+                            )
+                            Text(
+                                track.artist,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = SpitifyColors.TextPrimary.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable(enabled = track.hasArtistLink) { actions.openArtistOf(track) },
+                            )
+                            if (track.source != "Audius") {
+                                // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
+                                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                                val link = track.link
+                                Text(
+                                    when {
+                                        link != null -> "On ${track.source} ↗"
+                                        track.isLocal -> "From this device"
+                                        else -> "From your server"
                                     },
-                                    onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.press()) } },
-                                ) { change, amount ->
-                                    change.consume()
-                                    scope.launch { dragX.snapTo(dragX.value + amount * 0.9f) }
-                                }
-                            },
-                        label = "cover",
-                    ) { shown ->
-                        Artwork(
-                            url = shown.artworkLarge ?: shown.artwork,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = SpitifyColors.TextPrimary.copy(alpha = 0.55f),
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .clickable(enabled = link != null) { link?.let { runCatching { uriHandler.openUri(it) } } },
+                                )
+                            }
+                        }
+                    }
+                    IconButton(onClick = {
+                        val now = library.toggleLike(track)
+                        actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+                    }) {
+                        Icon(
+                            if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
+                            contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
+                            tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextPrimary,
                             modifier = Modifier
-                                .fillMaxSize()
-                                .shadow(32.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
-                            shape = RoundedCornerShape(8.dp),
-                            contentDescription = "Artwork for ${shown.title}",
+                                .size(28.dp)
+                                .graphicsLayer {
+                                    scaleX = likePop
+                                    scaleY = likePop
+                                },
                         )
                     }
-
-                    Spacer(Modifier.weight(1f))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AnimatedContent(
-                            targetState = track,
-                            contentKey = { it.id },
-                            transitionSpec = {
-                                (slideInVertically(Motion.settle()) { it / 3 } + fadeIn(tween(Motion.MEDIUM))) togetherWith
-                                    fadeOut(tween(Motion.FAST))
-                            },
-                            modifier = Modifier.weight(1f),
-                            label = "titleBlock",
-                        ) { track ->
-                            Column {
-                                Text(
-                                    track.title,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    maxLines = 1,
-                                    modifier = Modifier.basicMarquee(),
-                                )
-                                Text(
-                                    track.artist,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = SpitifyColors.TextPrimary.copy(alpha = 0.7f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable(enabled = track.hasArtistLink) { actions.openArtistOf(track) },
-                                )
-                                if (track.source != "Audius") {
-                                    // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
-                                    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                                    val link = track.link
-                                    Text(
-                                        when {
-                                            link != null -> "On ${track.source} ↗"
-                                            track.isLocal -> "From this device"
-                                            else -> "From your server"
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = SpitifyColors.TextPrimary.copy(alpha = 0.55f),
-                                        maxLines = 1,
-                                        modifier = Modifier
-                                            .padding(top = 2.dp)
-                                            .clickable(enabled = link != null) { link?.let { runCatching { uriHandler.openUri(it) } } },
-                                    )
-                                }
-                            }
-                        }
-                        IconButton(onClick = {
-                            val now = library.toggleLike(track)
-                            actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
-                        }) {
-                            Icon(
-                                if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
-                                contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
-                                tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextPrimary,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .graphicsLayer {
-                                        scaleX = likePop
-                                        scaleY = likePop
-                                    },
-                            )
-                        }
-                    }
-
+                }
+            }
+            val controls: @Composable () -> Unit = {
+                Column {
                     Spacer(Modifier.height(12.dp))
                     SeekBar(state.positionMs, state.durationMs, onSeek = player::seekTo)
 
@@ -399,36 +399,65 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         }
                     }
                 }
-
-            lyrics?.let { lyr ->
-                LyricsCard(lyr, state.positionMs, lerp(art.secondary, color, 0.5f), onExpand = { lyricsOpen = true })
             }
 
-            if (track.hasArtistLink) {
-                Column(
-                    Modifier
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SpitifyColors.Highlight)
-                        .clickable { actions.openArtistOf(track) },
-                ) {
-                    Box(Modifier.fillMaxWidth().height(180.dp)) {
-                        Artwork(track.artistImage, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
-                        Text(
-                            "About the artist",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(14.dp),
-                        )
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (sideBySide) {
+                    val coverSide = minOf(pageHeight - 72.dp, maxWidth * 0.45f).coerceAtLeast(160.dp)
+                    Column(Modifier.fillMaxWidth().height(pageHeight.coerceAtLeast(360.dp)).padding(horizontal = 32.dp)) {
+                        header()
+                        Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            cover(Modifier.size(coverSide))
+                            Spacer(Modifier.width(40.dp))
+                            Column(Modifier.weight(1f).widthIn(max = 560.dp)) {
+                                titleRow()
+                                controls()
+                            }
+                        }
                     }
-                    Column(Modifier.padding(16.dp)) {
-                        Text(track.artist, style = MaterialTheme.typography.titleMedium)
-                        Text("Tap to see their top tracks", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    // Portrait tablets keep the phone layout, just capped so the cover doesn't fill the screen.
+                    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().height(pageHeight.coerceAtLeast(560.dp)).padding(horizontal = 24.dp)) {
+                        header()
+                        Spacer(Modifier.weight(1f))
+                        cover(Modifier.fillMaxWidth().aspectRatio(1f))
+                        Spacer(Modifier.weight(1f))
+                        titleRow()
+                        controls()
                     }
                 }
-            }
 
-            Spacer(Modifier.height(24.dp))
+                Column(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                    lyrics?.let { lyr ->
+                        LyricsCard(lyr, state.positionMs, lerp(art.secondary, color, 0.5f), onExpand = { lyricsOpen = true })
+                    }
+
+                    if (track.hasArtistLink) {
+                        Column(
+                            Modifier
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SpitifyColors.Highlight)
+                                .clickable { actions.openArtistOf(track) },
+                        ) {
+                            Box(Modifier.fillMaxWidth().height(180.dp)) {
+                                Artwork(track.artistImage, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
+                                Text(
+                                    "About the artist",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(14.dp),
+                                )
+                            }
+                            Column(Modifier.padding(16.dp)) {
+                                Text(track.artist, style = MaterialTheme.typography.titleMedium)
+                                Text("Tap to see their top tracks", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                }
             }
         }
     }

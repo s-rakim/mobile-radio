@@ -52,6 +52,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.srakim.spitify.data.RecentItem
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalContentWidth
+import com.srakim.spitify.ui.gridColumns
 import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
@@ -153,8 +155,11 @@ fun LibraryScreen() {
         else -> openKind(e)
     }
 
+    val width = LocalContentWidth.current
     LazyVerticalGrid(
-        columns = if (grid) GridCells.Fixed(3) else GridCells.Fixed(1),
+        columns = GridCells.Fixed(
+            if (grid) gridColumns(width, phone = 3, minCell = 150.dp) else gridColumns(width, phone = 1, minCell = 360.dp),
+        ),
         modifier = Modifier.fillMaxSize().background(SpitifyColors.Background),
         contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp),
         horizontalArrangement = Arrangement.spacedBy(if (grid) 12.dp else 0.dp),

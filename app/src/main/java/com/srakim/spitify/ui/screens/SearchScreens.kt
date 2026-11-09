@@ -75,6 +75,8 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalContentWidth
+import com.srakim.spitify.ui.gridColumns
 import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
@@ -96,7 +98,7 @@ import kotlinx.coroutines.delay
 fun SearchScreen() {
     val actions = LocalActions.current
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        columns = GridCells.Fixed(gridColumns(LocalContentWidth.current, phone = 2, minCell = 200.dp)),
         modifier = Modifier.fillMaxSize().background(SpitifyColors.Background),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomInset.current + 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),

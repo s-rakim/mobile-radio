@@ -43,6 +43,8 @@ import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApi
 import com.srakim.spitify.ui.LocalBottomInset
+import com.srakim.spitify.ui.LocalContentWidth
+import com.srakim.spitify.ui.gridColumns
 import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
@@ -145,13 +147,14 @@ fun HomeScreen() {
         item {
             val trendingPlaylists = (feed.state as? Load.Ready)?.data?.playlists.orEmpty()
             val tiles = buildShortcuts(lib.recentItems, lib.liked.isNotEmpty() || lib.recentItems.isEmpty(), trendingPlaylists, actions)
+            val perRow = gridColumns(LocalContentWidth.current, phone = 2, minCell = 260.dp).coerceAtMost(4)
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                tiles.chunked(2).forEachIndexed { row, pair ->
+                tiles.chunked(perRow).forEachIndexed { row, group ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEachIndexed { col, tile ->
-                            ShortcutTile(tile.title, tile.open, Modifier.weight(1f).appear(row * 2 + col), tile.art)
+                        group.forEachIndexed { col, tile ->
+                            ShortcutTile(tile.title, tile.open, Modifier.weight(1f).appear(row * perRow + col), tile.art)
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        repeat(perRow - group.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }

@@ -23,6 +23,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -140,8 +145,16 @@ fun SpitifyRoot(app: SpitifyApp) {
     LaunchedEffect(Unit) {
         app.player.messages.collect { actions.toast(it) }
     }
+    // Tablets and wide windows swap the bottom bar for a rail down the left side.
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val wide = screenWidth >= WIDE_SCREEN_DP
+    val contentWidth = if (wide) (screenWidth - RAIL_WIDTH).dp else screenWidth.dp
     val bottomInset by animateDpAsState(
-        if (playback.current != null) 150.dp else 86.dp,
+        when {
+            wide -> if (playback.current != null) 88.dp else 16.dp
+            playback.current != null -> 150.dp
+            else -> 86.dp
+        },
         spring(stiffness = Spring.StiffnessMediumLow),
         label = "bottomInset",
     )
@@ -162,47 +175,55 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalActions provides actions,
         LocalDataSaver provides settings.dataSaver,
         LocalBottomInset provides bottomInset,
+        LocalContentWidth provides contentWidth,
     ) {
-        Box(
+        Row(
             Modifier
                 .fillMaxSize()
                 .background(SpitifyColors.Background),
         ) {
-            AppNavHost(nav)
-            UpdateDialog()
+            if (wide) NavRail(nav, onCreate = { createSheet = true })
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                AppNavHost(nav)
 
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-            ) {
-                SnackbarHost(snackbar) { data ->
-                    Snackbar(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        containerColor = SpitifyColors.Toast,
-                        contentColor = SpitifyColors.OnToast,
-                        shape = MaterialTheme.shapes.small,
-                    ) {
-                        Text(data.visuals.message, style = MaterialTheme.typography.titleSmall, color = SpitifyColors.OnToast)
-                    }
-                }
-                Box(
+                Column(
                     Modifier
-                        .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, SpitifyColors.Base.copy(alpha = 0.85f), SpitifyColors.Base))),
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth(),
                 ) {
-                    Column {
-                        AnimatedVisibility(
-                            visible = playback.current != null,
-                            enter = slideInVertically(Motion.settle()) { it } + fadeIn(tween(Motion.MEDIUM)) + expandVertically(Motion.settle()),
-                            exit = slideOutVertically(tween(Motion.MEDIUM)) { it } + fadeOut(tween(Motion.FAST)) + shrinkVertically(tween(Motion.MEDIUM)),
+                    SnackbarHost(snackbar) { data ->
+                        Snackbar(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            containerColor = SpitifyColors.Toast,
+                            contentColor = SpitifyColors.OnToast,
+                            shape = MaterialTheme.shapes.small,
                         ) {
-                            MiniPlayer(onOpen = { playerOpen = true })
+                            Text(data.visuals.message, style = MaterialTheme.typography.titleSmall, color = SpitifyColors.OnToast)
                         }
-                        BottomBar(nav, onCreate = { createSheet = true })
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, SpitifyColors.Base.copy(alpha = 0.85f), SpitifyColors.Base))),
+                    ) {
+                        Column {
+                            AnimatedVisibility(
+                                visible = playback.current != null,
+                                enter = slideInVertically(Motion.settle()) { it } + fadeIn(tween(Motion.MEDIUM)) + expandVertically(Motion.settle()),
+                                exit = slideOutVertically(tween(Motion.MEDIUM)) { it } + fadeOut(tween(Motion.FAST)) + shrinkVertically(tween(Motion.MEDIUM)),
+                            ) {
+                                MiniPlayer(onOpen = { playerOpen = true })
+                            }
+                            if (wide) Spacer(Modifier.navigationBarsPadding().height(8.dp))
+                            else BottomBar(nav, onCreate = { createSheet = true })
+                        }
                     }
                 }
             }
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            UpdateDialog()
 
             AnimatedVisibility(
                 visible = playerOpen && playback.current != null,
@@ -325,24 +346,54 @@ private fun BottomBar(nav: NavHostController, onCreate: () -> Unit) {
     ) {
         Tab.entries.forEach { tab ->
             val selected = currentTab == tab.route
-            val icon = when (tab) {
-                Tab.HOME -> if (selected) Icons.Rounded.Home else Icons.Outlined.Home
-                Tab.SEARCH -> if (selected) Icons.Rounded.Search else Icons.Outlined.Search
-                Tab.LIBRARY -> if (selected) Icons.Rounded.LibraryMusic else Icons.Outlined.LibraryMusic
-            }
-            NavItem(tab.label, icon, selected, Modifier.weight(1f)) {
-                if (selected) {
-                    nav.popBackStack(tab.route, inclusive = false)
-                } else {
-                    nav.navigate(tab.route) {
-                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
-            }
+            NavItem(tab.label, tabIcon(tab, selected), selected, Modifier.weight(1f)) { openTab(nav, tab, selected) }
         }
         NavItem("Create", Icons.Rounded.Add, false, Modifier.weight(1f), onCreate)
+    }
+}
+
+private const val RAIL_WIDTH = 88
+
+/** Same tabs as the bottom bar, stacked down the left edge for tablets and wide windows. */
+@Composable
+private fun NavRail(nav: NavHostController, onCreate: () -> Unit) {
+    val entry by nav.currentBackStackEntryAsState()
+    val currentTab = entry?.destination?.route?.substringBefore('/') ?: Tab.HOME.route
+
+    Column(
+        Modifier
+            .width(RAIL_WIDTH.dp)
+            .fillMaxHeight()
+            .background(SpitifyColors.Base)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(top = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Tab.entries.forEach { tab ->
+            val selected = currentTab == tab.route
+            NavItem(tab.label, tabIcon(tab, selected), selected, Modifier.fillMaxWidth()) { openTab(nav, tab, selected) }
+        }
+        NavItem("Create", Icons.Rounded.Add, false, Modifier.fillMaxWidth(), onCreate)
+    }
+}
+
+private fun tabIcon(tab: Tab, selected: Boolean): ImageVector = when (tab) {
+    Tab.HOME -> if (selected) Icons.Rounded.Home else Icons.Outlined.Home
+    Tab.SEARCH -> if (selected) Icons.Rounded.Search else Icons.Outlined.Search
+    Tab.LIBRARY -> if (selected) Icons.Rounded.LibraryMusic else Icons.Outlined.LibraryMusic
+}
+
+private fun openTab(nav: NavHostController, tab: Tab, selected: Boolean) {
+    if (selected) {
+        nav.popBackStack(tab.route, inclusive = false)
+    } else {
+        nav.navigate(tab.route) {
+            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
 }
 

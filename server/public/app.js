@@ -35,10 +35,11 @@ async function searchAllSources(searchQuery) {
     let catalogTracks = [];
     let youtubeTracks = [];
     let youtubePending = true;
+    let pending = 5;
 
     const draw = () => {
         if (searchId !== latestSearch) return;
-        displayResults([...youtubeTracks, ...catalogTracks], youtubePending);
+        displayResults([...youtubeTracks, ...catalogTracks], youtubePending || pending > 0);
     };
 
     // YouTube is the slow one, so it fills in on its own when it's ready.
@@ -50,59 +51,52 @@ async function searchAllSources(searchQuery) {
         draw();
     });
 
-    try {
-        const [jamendoRes, audiusRes, deezerRes, archiveRes, ccmixterRes] = await Promise.all([
-            api('jamendo', searchQuery, { results: [] }),
-            api('audius', searchQuery, { data: [] }),
-            api('deezer', searchQuery, { data: [] }),
-            api('archive', searchQuery, []),
-            api('ccmixter', searchQuery, []),
-        ]);
-
-        const jamendoTracks = (jamendoRes.results || []).map(track => ({
-            title: track.name, artist: track.artist_name,
-            image: track.album_image || 'https://placehold.co/60x45',
-            audioUrl: track.audio, source: 'Jamendo', id: track.id
-        }));
-
-        const audiusTracks = (audiusRes.data || []).slice(0, 5).map(track => ({
-            title: track.title, artist: track.user?.name,
-            image: track.artwork?.['150x150'] || 'https://placehold.co/60x45',
-            audioUrl: `https://api.audius.co/v1/tracks/${track.id}/stream?app_name=spitify`,
-            source: 'Audius', id: track.id
-        }));
-
-        const deezerTracks = (deezerRes.data || []).slice(0, 5).map(track => ({
-            title: track.title, artist: track.artist?.name,
-            image: track.album?.cover_medium || 'https://placehold.co/60x45',
-            audioUrl: track.preview, source: 'Deezer (Preview)', id: track.id
-        }));
-
-        catalogTracks = [
-            ...jamendoTracks, ...audiusTracks, ...deezerTracks,
-            ...(Array.isArray(archiveRes) ? archiveRes : []),
-            ...(Array.isArray(ccmixterRes) ? ccmixterRes : [])
-        ];
+    // Each source shows up as soon as it answers instead of waiting for the slowest one.
+    const bySource = {};
+    const order = ['jamendo', 'audius', 'deezer', 'archive', 'ccmixter'];
+    const add = (name, tracks) => {
+        bySource[name] = tracks;
+        pending--;
+        catalogTracks = order.flatMap(n => bySource[n] || []);
         draw();
-    } catch (error) {
-        console.error('Search error:', error);
-        if (searchId === latestSearch) resultsContainer.textContent = 'Error querying media catalogs.';
-    }
+    };
+
+    api('jamendo', searchQuery, { results: [] }).then(res => add('jamendo', (res.results || []).map(track => ({
+        title: track.name, artist: track.artist_name,
+        image: track.album_image || 'https://placehold.co/60x45',
+        audioUrl: track.audio, source: 'Jamendo', id: track.id
+    }))));
+
+    api('audius', searchQuery, { data: [] }).then(res => add('audius', (res.data || []).slice(0, 5).map(track => ({
+        title: track.title, artist: track.user?.name,
+        image: track.artwork?.['150x150'] || 'https://placehold.co/60x45',
+        audioUrl: `https://api.audius.co/v1/tracks/${track.id}/stream?app_name=spitify`,
+        source: 'Audius', id: track.id
+    }))));
+
+    api('deezer', searchQuery, { data: [] }).then(res => add('deezer', (res.data || []).slice(0, 5).map(track => ({
+        title: track.title, artist: track.artist?.name,
+        image: track.album?.cover_medium || 'https://placehold.co/60x45',
+        audioUrl: track.preview, source: 'Deezer (Preview)', id: track.id
+    }))));
+
+    api('archive', searchQuery, []).then(res => add('archive', Array.isArray(res) ? res : []));
+    api('ccmixter', searchQuery, []).then(res => add('ccmixter', Array.isArray(res) ? res : []));
 }
 
 // Titles and artist names come from other people's servers, so they go in as text, never as HTML.
-function displayResults(tracks, youtubePending) {
+function displayResults(tracks, stillSearching) {
     resultsContainer.replaceChildren();
 
-    if (youtubePending) {
+    if (stillSearching) {
         const note = document.createElement('p');
         note.className = 'pending';
-        note.textContent = 'Still searching YouTube...';
+        note.textContent = 'Still searching...';
         resultsContainer.appendChild(note);
     }
 
     if (tracks.length === 0) {
-        if (!youtubePending) resultsContainer.textContent = 'No matching tracks found.';
+        if (!stillSearching) resultsContainer.textContent = 'No matching tracks found.';
         return;
     }
 

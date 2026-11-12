@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore) {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val quick = client.newBuilder().readTimeout(15, TimeUnit.SECONDS).build()
+    private val quick = client.newBuilder().readTimeout(8, TimeUnit.SECONDS).build()
 
     // A first YouTube search on a cold server can take a minute or more.
     private val patient = client.newBuilder()

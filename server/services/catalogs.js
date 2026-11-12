@@ -1,8 +1,18 @@
-// Search routes for the open catalogues. Each one gives up after 10 seconds
-// and answers with an empty result instead of an error, so one slow source
-// never breaks the page.
+// Search routes for the open catalogues. Each request gives up after a few
+// seconds and the route answers with an empty result instead of an error, so
+// one slow source never holds up the rest.
+//
+// Three things keep searches quick:
+//  - answers are cached for 10 minutes, so a repeat search costs nothing
+//  - two identical searches at the same moment share one upstream request
+//  - a source that keeps failing (ccMixter is often down) is skipped for a few
+//    minutes instead of making every search wait for it to time out
 
-const TIMEOUT = 10000;
+const TIMEOUT = 3500;
+const CACHE_MS = 10 * 60 * 1000;
+const CACHE_MAX = 500;
+const FAILS_BEFORE_PAUSE = 2;
+const PAUSE_MS = 5 * 60 * 1000;
 
 async function getJson(url) {
   const res = await fetch(url, {
@@ -57,7 +67,7 @@ async function archive(q) {
 
   const query = `(${clean}) AND mediatype:audio AND (collection:netlabels OR collection:etree)`;
   const search = await getJson(
-    `https://archive.org/advancedsearch.php?q=${enc(query)}&fl[]=identifier&fl[]=title&fl[]=creator&rows=6&output=json`
+    `https://archive.org/advancedsearch.php?q=${enc(query)}&fl[]=identifier&fl[]=title&fl[]=creator&rows=5&output=json`
   );
   const docs = search?.response?.docs || [];
 
@@ -106,11 +116,48 @@ async function ccmixter(q) {
     .filter(Boolean);
 }
 
+// Wraps a search function with the cache, request sharing and pause-on-failure.
+function fast(name, search) {
+  const cache = new Map(); // query -> { value, at }
+  const inflight = new Map(); // query -> Promise
+  let fails = 0;
+  let pausedUntil = 0;
+
+  return async (q) => {
+    const key = q.trim().toLowerCase();
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+
+    if (Date.now() < pausedUntil) throw new Error(`${name} paused after repeated failures`);
+    if (inflight.has(key)) return inflight.get(key);
+
+    const job = search(q)
+      .then((value) => {
+        fails = 0;
+        cache.set(key, { value, at: Date.now() });
+        if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); // drop the oldest
+        return value;
+      })
+      .catch((err) => {
+        if (++fails >= FAILS_BEFORE_PAUSE) {
+          pausedUntil = Date.now() + PAUSE_MS;
+          fails = 0;
+          console.warn(`[${name}] failing, skipping it for ${PAUSE_MS / 60000} minutes`);
+        }
+        throw err;
+      })
+      .finally(() => inflight.delete(key));
+
+    inflight.set(key, job);
+    return job;
+  };
+}
+
 // name -> [search function, what to send back if it fails]
 module.exports = {
-  audius: [audius, { data: [] }],
-  deezer: [deezer, { data: [] }],
-  jamendo: [jamendo, { results: [] }],
-  archive: [archive, []],
-  ccmixter: [ccmixter, []],
+  audius: [fast('audius', audius), { data: [] }],
+  deezer: [fast('deezer', deezer), { data: [] }],
+  jamendo: [fast('jamendo', jamendo), { results: [] }],
+  archive: [fast('archive', archive), []],
+  ccmixter: [fast('ccmixter', ccmixter), []],
 };

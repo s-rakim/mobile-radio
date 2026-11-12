@@ -47,7 +47,7 @@ All search routes take `?q=` and answer 400 without it. The catalogue routes giv
 | `/stream/:id` | Plays a YouTube result, with range support for seeking. `410` means search again. |
 | `/health` | Returns `ok` |
 
-YouTube results take a while, so the page shows the other catalogues first and adds YouTube when it's ready.
+Each source shows up on the page as soon as it answers. Searches are cached for 10 minutes (YouTube for a day), two identical searches at once share one request, and a source that keeps failing, like ccMixter when it's down, is skipped for 5 minutes instead of slowing every search.
 
 ## Reaching it from the phone
 

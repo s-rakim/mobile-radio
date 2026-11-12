@@ -79,6 +79,6 @@ class Catalog(
 
     private companion object {
         const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
-        const val OPEN_CATALOG_TIMEOUT_MS = 15_000L
+        const val OPEN_CATALOG_TIMEOUT_MS = 8_000L
     }
 }

@@ -75,7 +75,7 @@ for (const [name, [search, empty]] of Object.entries(catalogs)) {
     try {
       res.json(await search(q));
     } catch (err) {
-      console.warn(`[${name}]`, err.message);
+      if (!/paused/.test(err.message)) console.warn(`[${name}]`, err.message);
       res.json(empty);
     }
   });

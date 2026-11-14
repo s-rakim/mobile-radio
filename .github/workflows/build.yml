@@ -1,15 +1,8 @@
 name: Build APK
 
+# Builds only when started by hand: Actions → Build APK → Run workflow. Pushes and pull
+# requests don't build, so code can go up without using Actions minutes on every change.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      # The web app has its own workflow and shouldn't cut a new Android release.
-      - 'webapp/**'
-      - '.github/workflows/webapp.yml'
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -84,7 +77,9 @@ jobs:
           path: Spitify-*.apk
 
       - name: Publish release
-        if: github.event_name != 'pull_request'
+        # Runs started on main become a release (and reach the in-app updater). Other branches
+        # only get the APK as a download on the run page, for testing.
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}

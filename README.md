@@ -6,7 +6,7 @@ Music comes from [Audius](https://audius.co), an open catalogue of independent a
 
 ## Download
 
-Every push to `main` builds a signed APK and publishes it on the [Releases page](../../releases/latest). Grab `Spitify-x.y.z.apk` on your phone and open it. Android will ask you to allow installs from your browser or file manager the first time.
+Each build started from Actions → Build APK on `main` makes a signed APK and publishes it on the [Releases page](../../releases/latest). Grab `Spitify-x.y.z.apk` on your phone and open it. Android will ask you to allow installs from your browser or file manager the first time.
 
 Needs Android 8.0 (API 26) or newer. Works on phones and tablets: on a tablet or a wide window you get a side rail instead of the bottom bar, bigger grids, and the player puts the cover next to the controls in landscape.
 

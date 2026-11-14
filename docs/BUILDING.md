@@ -18,14 +18,14 @@ Release builds are shrunk with R8, which makes them much smaller and smoother th
 
 ## CI
 
-`.github/workflows/build.yml` runs on every push to `main`, on pull requests and on demand from the Actions tab. It:
+`.github/workflows/build.yml` only runs when you start it: on GitHub open **Actions → Build APK → Run workflow**, pick the branch and press **Run workflow**. Pushes and pull requests don't build anything. It:
 
 1. sets up JDK 17 and the Android SDK
 2. builds the release APK
 3. uploads it as a workflow artifact
-4. on pushes to `main`, publishes a GitHub release tagged `v1.0.<run number>` with the APK attached
+4. when run on `main`, publishes a GitHub release tagged `v1.0.<run number>` with the APK attached
 
-Pushes that only touch Markdown or `docs/` don't trigger a build.
+Run it on any other branch to get a test APK from the run page without publishing a release.
 
 The version code is the run number, so every release can install over the previous one.
 

@@ -39,6 +39,7 @@ All search routes take `?q=` and answer 400 without it. The catalogue routes giv
 | Route | Source |
 | --- | --- |
 | `/api/youtube` | YouTube through yt-dlp, full tracks streamed via `/stream/:id` |
+| `/api/soundcloud` | SoundCloud through yt-dlp, played via `/stream/:id` like YouTube |
 | `/api/audius` | Audius search (api.audius.co) |
 | `/api/archive` | Internet Archive netlabels and live shows |
 | `/api/ccmixter` | ccMixter Creative Commons tracks |

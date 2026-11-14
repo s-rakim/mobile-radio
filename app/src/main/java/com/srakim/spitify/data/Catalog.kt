@@ -21,6 +21,7 @@ class Catalog(
     val audius: AudiusApi,
     val server: SubsonicApi,
     val web: SpitifyServerApi,
+    val radio: RadioBrowserApi,
     val local: LocalMusic,
     private val settings: SettingsStore,
 ) {
@@ -56,11 +57,25 @@ class Catalog(
         return runCatching { web.youtube(q) }.getOrDefault(emptyList())
     }
 
+    /** SoundCloud through the Spitify server. Separate for the same reason as YouTube. */
+    suspend fun searchSoundCloud(query: String): List<Track> {
+        val q = query.trim()
+        if (q.isEmpty() || !web.enabled) return emptyList()
+        return runCatching { web.soundcloud(q) }.getOrDefault(emptyList())
+    }
+
     /** Archive, ccMixter and Jamendo through the Spitify server. Quick, but still optional. */
     suspend fun searchOpenCatalogs(query: String): List<Track> {
         val q = query.trim()
         if (q.isEmpty() || !web.enabled) return emptyList()
         return withTimeoutOrNull(OPEN_CATALOG_TIMEOUT_MS) { runCatching { web.openCatalogs(q) }.getOrNull() }.orEmpty()
+    }
+
+    /** Live radio stations matching the search. Straight from Radio Browser, no server needed. */
+    suspend fun searchRadio(query: String): List<Track> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        return withTimeoutOrNull(RADIO_TIMEOUT_MS) { runCatching { radio.search(q) }.getOrNull() }.orEmpty()
     }
 
     suspend fun artist(id: String): Pair<Artist?, List<Track>> = coroutineScope {
@@ -80,5 +95,6 @@ class Catalog(
     private companion object {
         const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
         const val OPEN_CATALOG_TIMEOUT_MS = 8_000L
+        const val RADIO_TIMEOUT_MS = 8_000L
     }
 }

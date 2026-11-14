@@ -7,6 +7,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -18,6 +19,7 @@ import com.srakim.spitify.data.SettingsStore
 import java.io.File
 import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.PlayContext
+import com.srakim.spitify.data.RadioBrowserApi
 import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.data.tasteGenres
@@ -49,6 +51,8 @@ data class PlaybackState(
     val upNext: List<QueueEntry> = emptyList(),
     val context: PlayContext? = null,
     val sleepTimerEndsAt: Long? = null,
+    /** What a radio station says it's playing right now, when it says. */
+    val onAir: String? = null,
 ) {
     val progress: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
@@ -65,6 +69,7 @@ class PlayerController(
     private val library: LibraryStore,
     private val settings: SettingsStore,
     private val downloads: DownloadStore,
+    private val radio: RadioBrowserApi,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -247,8 +252,9 @@ class PlayerController(
         if (current != null && current.id != lastRecordedId && c.playWhenReady) {
             lastRecordedId = current.id
             if (!settings.current.privateSession) library.recordPlay(current)
+            if (current.isRadio) scope.launch { radio.reportPlay(current) }
         }
-        if (current != null && !c.hasNextMediaItem() && c.repeatMode == Player.REPEAT_MODE_OFF) {
+        if (current != null && !current.isRadio && !c.hasNextMediaItem() && c.repeatMode == Player.REPEAT_MODE_OFF) {
             maybeAutoplay(c, current)
         }
 
@@ -274,7 +280,24 @@ class PlayerController(
             upNext = upNext,
             context = playContext,
             sleepTimerEndsAt = sleepEndsAt,
+            onAir = if (current?.isRadio == true) onAirText(c, current) else null,
         )
+    }
+
+    /**
+     * Stations send the song title inside the stream (ICY metadata), and the player puts it in
+     * its media metadata. Only worth showing when it isn't just the station's own name again.
+     */
+    private fun onAirText(c: MediaController, station: Track): String? {
+        val meta = c.mediaMetadata
+        val title = meta.title?.toString()?.trim().orEmpty()
+        val artist = meta.artist?.toString()?.trim().orEmpty()
+        val text = when {
+            title.isEmpty() -> ""
+            artist.isEmpty() || artist == station.artist || title.contains(artist) -> title
+            else -> "$artist - $title"
+        }
+        return text.takeIf { it.isNotEmpty() && it != station.title && it != station.artist }
     }
 
     private fun updatePosition(c: MediaController) {
@@ -302,6 +325,8 @@ class PlayerController(
     )
 }
 
+internal const val EXTRA_MIME = "spitify.mime"
+
 fun Track.remoteUri(): Uri = Uri.parse(SpitifyServerApi.resolve(streamUrl) ?: AudiusApi.streamUrl(id))
 
 /**
@@ -318,7 +343,14 @@ fun Track.toMediaItem(localFile: File? = null): MediaItem = MediaItem.Builder()
     .setMediaId(id)
     .setUri(localFile?.let(Uri::fromFile) ?: playbackUri())
     // The URI itself doesn't survive the trip to the playback service, request metadata does.
-    .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(playbackUri()).build())
+    .setRequestMetadata(
+        MediaItem.RequestMetadata.Builder()
+            .setMediaUri(playbackUri())
+            // The MIME type doesn't survive the trip either; HLS radio needs it when the address doesn't end in .m3u8.
+            .setExtras(if (hls) android.os.Bundle().apply { putString(EXTRA_MIME, MimeTypes.APPLICATION_M3U8) } else null)
+            .build(),
+    )
+    .apply { if (hls) setMimeType(MimeTypes.APPLICATION_M3U8) }
     .setMediaMetadata(
         MediaMetadata.Builder()
             .setTitle(title)

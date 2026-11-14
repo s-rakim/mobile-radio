@@ -35,11 +35,13 @@ async function searchAllSources(searchQuery) {
     let catalogTracks = [];
     let youtubeTracks = [];
     let youtubePending = true;
+    let soundcloudTracks = [];
+    let soundcloudPending = true;
     let pending = 5;
 
     const draw = () => {
         if (searchId !== latestSearch) return;
-        displayResults([...youtubeTracks, ...catalogTracks], youtubePending || pending > 0);
+        displayResults([...youtubeTracks, ...soundcloudTracks, ...catalogTracks], youtubePending || soundcloudPending || pending > 0);
     };
 
     // YouTube is the slow one, so it fills in on its own when it's ready.
@@ -48,6 +50,15 @@ async function searchAllSources(searchQuery) {
             .filter(t => !t.error && t.audioUrl)
             .map(t => ({ ...t, source: 'YouTube' }));
         youtubePending = false;
+        draw();
+    });
+
+    // SoundCloud songs that only come as HLS can't play in a plain <audio> tag on most browsers.
+    api('soundcloud', searchQuery, []).then(res => {
+        soundcloudTracks = (Array.isArray(res) ? res : [])
+            .filter(t => !t.error && t.audioUrl && !t.hls)
+            .map(t => ({ ...t, source: 'SoundCloud' }));
+        soundcloudPending = false;
         draw();
     });
 

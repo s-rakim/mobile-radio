@@ -45,21 +45,27 @@ class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore
         if (body.trim() != "ok") throw IOException("That doesn't look like a Spitify server")
     }
 
-    suspend fun youtube(query: String): List<Track> {
-        val items = parseArray(get(patient, "api/youtube", mapOf("q" to query)))
+    suspend fun youtube(query: String): List<Track> = streamed("api/youtube", query, "YouTube")
+
+    /** SoundCloud through the server's yt-dlp, played through the server like YouTube. */
+    suspend fun soundcloud(query: String): List<Track> = streamed("api/soundcloud", query, "SoundCloud")
+
+    private suspend fun streamed(route: String, query: String, label: String): List<Track> {
+        val items = parseArray(get(patient, route, mapOf("q" to query)))
         return items.mapNotNull { o ->
             if (o.text("error") != null) return@mapNotNull null
             val id = o.text("id") ?: return@mapNotNull null
             Track(
                 id = ID_PREFIX + id,
                 title = o.text("title") ?: "Unknown song",
-                artist = o.text("artist") ?: "YouTube",
+                artist = o.text("artist") ?: label,
                 artwork = o.text("image"),
                 artworkLarge = o.text("image"),
                 durationSec = o.text("duration")?.toIntOrNull() ?: 0,
                 // played through the server, whatever its address is at the time
                 streamUrl = "$SCHEME/stream/$id",
-                origin = "YouTube",
+                origin = label,
+                hls = o.text("hls") == "true",
             )
         }
     }

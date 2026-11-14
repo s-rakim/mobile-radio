@@ -1,6 +1,8 @@
 import sys
 import json
 import os
+import base64
+from urllib.parse import urlparse
 import shutil
 import traceback
 
@@ -93,11 +95,80 @@ def fetch_stream(video_id):
     }
 
 
+# ---- SoundCloud ----
+# Same idea as YouTube: yt-dlp finds the track and its audio link. A track's id carries its
+# soundcloud.com address (base64), so a saved song can be looked up again after a restart.
+
+SC_FORMAT = "bestaudio[protocol^=http]/bestaudio"
+
+
+def sc_token(page_url):
+    path = urlparse(page_url).path.strip("/")
+    return base64.urlsafe_b64encode(path.encode()).decode().rstrip("=")
+
+
+def sc_page(token):
+    padded = token + "=" * (-len(token) % 4)
+    return "https://soundcloud.com/" + base64.urlsafe_b64decode(padded.encode()).decode()
+
+
+def sc_pack(info):
+    page = info.get("webpage_url") or info.get("original_url")
+    url = info.get("url")
+    if not page or not url:
+        return None
+    # SoundCloud Go+ songs only give a 30-second preview to everyone else; leave those out.
+    if "/preview/" in url or (info.get("format_note") or "").lower() == "preview":
+        return None
+    thumbs = info.get("thumbnails") or []
+    best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0), default=None)
+    return {
+        "title": info.get("title"),
+        "artist": info.get("artist") or info.get("uploader"),
+        "image": (best or {}).get("url") or info.get("thumbnail"),
+        "duration": int(info.get("duration") or 0),
+        "audioUrl": url,
+        "headers": info.get("http_headers", {}),
+        "hls": (info.get("protocol") or "").startswith("m3u8"),
+        "source": "soundcloud",
+        "id": "sc-" + sc_token(page),
+    }
+
+
+def sc_options():
+    opts = build_opts()
+    opts["format"] = SC_FORMAT
+    opts["ignoreerrors"] = True  # one blocked track shouldn't sink the whole search
+    opts.pop("cookiefile", None)  # those are YouTube's
+    return opts
+
+
+def sc_search(query, limit=6):
+    with yt_dlp.YoutubeDL(sc_options()) as ydl:
+        result = ydl.extract_info(f"scsearch{limit}:{query}", download=False) or {}
+    tracks = [sc_pack(e) for e in (result.get("entries") or []) if e]
+    return {"results": [t for t in tracks if t]}
+
+
+def sc_fetch(token):
+    with yt_dlp.YoutubeDL(sc_options()) as ydl:
+        info = ydl.extract_info(sc_page(token), download=False)
+    packed = sc_pack(info) if info else None
+    if not packed:
+        raise Exception("No playable audio")
+    return packed
+
+
 def main(arg):
     try:
-        # "id:<videoId>" gets a stream link; anything else is a search
+        # "id:<videoId>" gets a YouTube stream link, "sc:<query>" searches SoundCloud,
+        # "scid:<token>" gets a SoundCloud stream link; anything else is a YouTube search
         if arg.startswith("id:"):
             return fetch_stream(arg[3:])
+        if arg.startswith("scid:"):
+            return sc_fetch(arg[5:])
+        if arg.startswith("sc:"):
+            return sc_search(arg[3:])
         return search(arg)
     except Exception as e:
         print(traceback.format_exc(), file=sys.stderr)

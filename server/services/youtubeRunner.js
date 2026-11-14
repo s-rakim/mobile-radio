@@ -6,6 +6,7 @@ const SCRIPT_PATH = path.join(__dirname, '..', 'youtube_fetch.py');
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 const TTL = 5 * 60 * 60 * 1000; // googlevideo URLs die around 6h
 const SEARCH_TTL = 24 * 60 * 60 * 1000; // search results don't expire, keep them a day
+const SC_TTL = 20 * 60 * 1000; // SoundCloud's signed links don't last as long
 
 const tracks = new Map();   // id -> { audioUrl, headers, expires }
 const queries = new Map();  // query -> { results, expires }
@@ -41,7 +42,8 @@ function remember(data) {
   tracks.set(data.id, {
     audioUrl: data.audioUrl,
     headers: data.headers || {},
-    expires: Date.now() + TTL,
+    hls: Boolean(data.hls),
+    expires: Date.now() + (data.id.startsWith('sc-') ? SC_TTL : TTL),
   });
 }
 
@@ -93,6 +95,18 @@ function getTrack(id) {
 // Fetches a fresh stream for a known video, so old links (liked songs,
 // downloads, a server restart) keep working instead of expiring.
 async function refetch(id) {
+  if (id.startsWith('sc-')) {
+    const token = id.slice(3);
+    if (!/^[\w-]{4,400}$/.test(token)) return null;
+    const data = await once(`scid:${token}`, `scid:${token}`);
+    if (data.error || data.id !== id) {
+      console.warn('[soundcloud] Refetch failed for', id, data.error || '');
+      return null;
+    }
+    remember(data);
+    return getTrack(id);
+  }
+
   const videoId = id.replace(/^yt-/, '');
   if (!/^[\w-]{11}$/.test(videoId)) return null;
 
@@ -105,6 +119,28 @@ async function refetch(id) {
   return getTrack(id);
 }
 
+// SoundCloud search. Full extraction (SoundCloud has no slow challenge like YouTube), so every
+// result comes back ready to play straight away.
+async function searchSoundCloud(query) {
+  const clean = query.trim();
+  const key = `sc:${clean.toLowerCase()}`;
+
+  const cached = queries.get(key);
+  if (cached && cached.expires > Date.now()) return cached.results;
+
+  const data = await once(key, `sc:${clean}`);
+  if (data.error) {
+    console.warn('[soundcloud] Search error:', data.error);
+    return [{ error: data.error }];
+  }
+
+  const found = data.results || [];
+  found.forEach(remember);
+  const results = found.map(({ audioUrl, headers, ...t }) => ({ ...t, streamPath: `/stream/${t.id}` }));
+  queries.set(key, { results, expires: Date.now() + SEARCH_TTL });
+  return results;
+}
+
 function invalidate(id) {
   tracks.delete(id);
 }
@@ -113,3 +149,4 @@ module.exports = fetchTrack;
 module.exports.getTrack = getTrack;
 module.exports.refetch = refetch;
 module.exports.invalidate = invalidate;
+module.exports.searchSoundCloud = searchSoundCloud;

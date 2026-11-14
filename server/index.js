@@ -5,7 +5,7 @@ const { request } = require('undici');
 const catalogs = require('./services/catalogs');
 const accounts = require('./services/accounts');
 const youtubeRunner = require('./services/youtubeRunner');
-const { getTrack, refetch, invalidate } = youtubeRunner;
+const { getTrack, refetch, invalidate, searchSoundCloud } = youtubeRunner;
 
 const app = express();
 app.set('trust proxy', true); // so req.protocol is https behind Cloudflare
@@ -92,6 +92,17 @@ app.get('/api/youtube', async (req, res) => {
   );
 });
 
+app.get('/api/soundcloud', async (req, res) => {
+  const q = readQuery(req, res);
+  if (!q) return;
+
+  const results = await searchSoundCloud(q);
+  const base = baseUrl(req);
+  res.json(
+    results.map(({ streamPath, ...r }) => (streamPath ? { ...r, audioUrl: `${base}${streamPath}` } : r))
+  );
+});
+
 // YouTube stream URLs only work from the IP that fetched them (this machine),
 // so the audio is piped through here instead of handed to the client.
 // An unknown or expired id gets fetched again, so saved links don't go stale.
@@ -99,6 +110,10 @@ app.get('/stream/:id', async (req, res) => {
   const id = req.params.id;
   let track = getTrack(id) || (await refetch(id));
   if (!track) return res.status(404).json({ error: 'Track not found' });
+
+  // Some SoundCloud songs only come as HLS (a playlist of short pieces). The player fetches
+  // those pieces itself, so it's sent straight to a fresh playlist address.
+  if (track.hls) return res.redirect(302, track.audioUrl);
 
   let upstream;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -110,7 +125,7 @@ app.get('/stream/:id', async (req, res) => {
       upstream = await request(track.audioUrl, { headers });
     } catch (err) {
       console.warn('[stream]', err.message);
-      return res.status(502).json({ error: 'Could not reach YouTube' });
+      return res.status(502).json({ error: 'Could not reach the source' });
     }
 
     if (upstream.statusCode !== 403 && upstream.statusCode !== 410) break;

@@ -28,23 +28,29 @@ data class Track(
     val album: String? = null,
     /** Id that [com.srakim.spitify.data.Catalog.playlist] can open, when the album has a page. */
     val albumId: String? = null,
+    /** The stream is HLS (.m3u8), which the player can't always tell from the address. */
+    val hls: Boolean = false,
 ) {
     val source: String
         get() = when {
             id.startsWith(LocalMusic.ID_PREFIX) -> "This device"
             id.startsWith(SubsonicApi.ID_PREFIX) -> "Your server"
+            id.startsWith(RadioBrowserApi.ID_PREFIX) -> "Live radio"
             id.startsWith(SpitifyServerApi.ID_PREFIX) -> origin ?: "Spitify server"
             else -> "Audius"
         }
 
     val isLocal: Boolean get() = id.startsWith(LocalMusic.ID_PREFIX)
 
+    /** A live radio station rather than a song: no length, no seeking, nothing to download. */
+    val isRadio: Boolean get() = RadioBrowserApi.isRadio(id)
+
     /**
      * The name to look up when there's no artist page, e.g. a YouTube channel.
      * Drops the channel noise YouTube adds ("Sauti Sol - Topic", "SautiSolVEVO").
      */
     val artistSearchName: String
-        get() = artist
+        get() = if (isRadio) "" else artist
             .replace(Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s*(VEVO|Official)$", RegexOption.IGNORE_CASE), "")
             .trim()
@@ -52,13 +58,13 @@ data class Track(
             .orEmpty()
 
     /** Whether tapping the artist's name can go anywhere. */
-    val hasArtistLink: Boolean get() = artistId.isNotBlank() || artistSearchName.isNotBlank()
+    val hasArtistLink: Boolean get() = !isRadio && (artistId.isNotBlank() || artistSearchName.isNotBlank())
 
     /** Plain Audius songs, the only ones another phone can look up by id. */
     val isAudius: Boolean get() = source == "Audius"
 
     /** Songs already on the phone don't need saving. */
-    val canDownload: Boolean get() = !isLocal
+    val canDownload: Boolean get() = !isLocal && !isRadio && !hls
 }
 
 @Serializable

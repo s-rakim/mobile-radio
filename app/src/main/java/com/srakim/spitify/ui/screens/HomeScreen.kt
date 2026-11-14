@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -100,6 +101,10 @@ fun HomeScreen() {
     val serverAlbums = rememberLoad("server-albums", settings.subsonicUrl, settings.subsonicUser, settings.subsonicPassword, settings.subsonicEnabled) {
         if (catalog.server.enabled) runCatching { catalog.server.recentAlbums() }.getOrDefault(emptyList()) else emptyList()
     }
+
+    // Doesn't wait on the rest of the feed, and stays out of the way if Radio Browser is unreachable.
+    val nearbyRadio = rememberLoad("home-radio") { catalog.radio.nearby() }
+    val radioCountry = remember { catalog.radio.countryName() }
 
     val feed = rememberLoad("home") {
         coroutineScope {
@@ -206,6 +211,24 @@ fun HomeScreen() {
                     item {
                         SectionHeader("New on your server", action = "Show all", onAction = actions::openServer)
                         AlbumShelf(mine)
+                    }
+                }
+                val stations = (nearbyRadio.state as? Load.Ready)?.data.orEmpty()
+                if (showMusic && stations.isNotEmpty()) {
+                    item {
+                        SectionHeader(radioCountry?.let { "Radio in $it" } ?: "Popular radio")
+                        val ctx = PlayContext("radio-nearby", radioCountry?.let { "Radio in $it" } ?: "Popular radio", "RADIO")
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            itemsIndexed(stations, key = { _, t -> t.id }) { i, t ->
+                                MediaCard(
+                                    t.title,
+                                    if (playback.current?.id == t.id) "Playing now" else "Live • " + (t.genre?.replaceFirstChar { it.titlecase() } ?: "Radio"),
+                                    onClick = { player.play(stations, i, ctx) },
+                                    image = t.artwork,
+                                    width = 132.dp,
+                                )
+                            }
+                        }
                     }
                 }
                 if (showPlaylists && data.playlists.isNotEmpty()) {

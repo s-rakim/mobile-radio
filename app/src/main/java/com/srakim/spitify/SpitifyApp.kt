@@ -12,6 +12,7 @@ import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.LocalMusic
 import com.srakim.spitify.data.LyricsApi
 import com.srakim.spitify.data.SettingsStore
+import com.srakim.spitify.data.RadioBrowserApi
 import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.SubsonicApi
 import com.srakim.spitify.data.ThemeStore
@@ -36,14 +37,15 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val server: SubsonicApi by lazy { SubsonicApi(httpClient, settings) }
     val localMusic: LocalMusic by lazy { LocalMusic(this) }
     val webServer: SpitifyServerApi by lazy { SpitifyServerApi(httpClient, settings) }
-    val catalog: Catalog by lazy { Catalog(api, server, webServer, localMusic, settings) }
+    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings) }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
     val downloads: DownloadStore by lazy { DownloadStore(this, httpClient, settings) }
     val updater: AppUpdater by lazy { AppUpdater(this, httpClient) }
     val account: AccountSync by lazy { AccountSync(this, httpClient, settings, library) }
-    val player: PlayerController by lazy { PlayerController(this, api, library, settings, downloads) }
+    val radio: RadioBrowserApi by lazy { RadioBrowserApi(this, httpClient) }
+    val player: PlayerController by lazy { PlayerController(this, api, library, settings, downloads, radio) }
 
     /** Set by the playback service while it's alive, so Settings can read equaliser bands. */
     @Volatile

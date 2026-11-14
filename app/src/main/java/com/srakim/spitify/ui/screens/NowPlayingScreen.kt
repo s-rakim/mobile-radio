@@ -176,7 +176,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     var lyricsOpen by remember { mutableStateOf(false) }
     var lyrics by remember(track.id) { mutableStateOf<Lyrics?>(null) }
     LaunchedEffect(track.id, settings.showLyrics) {
-        lyrics = if (settings.showLyrics) lyricsApi.find(track) else null
+        lyrics = if (settings.showLyrics && !track.isRadio) lyricsApi.find(track) else null
     }
 
     Box(
@@ -343,7 +343,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             val controls: @Composable () -> Unit = {
                 Column {
                     Spacer(Modifier.height(12.dp))
-                    SeekBar(state.positionMs, state.durationMs, onSeek = player::seekTo)
+                    if (track.isRadio) LiveBar(state.onAir) else SeekBar(state.positionMs, state.durationMs, onSeek = player::seekTo)
 
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -490,6 +490,32 @@ private fun ToggleIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, on
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+/** In place of the seek bar for a live station: a LIVE badge and whatever it says is on air. */
+@Composable
+private fun LiveBar(onAir: String?) {
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFFE53935))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text("LIVE", style = MaterialTheme.typography.labelMedium, color = Color.White)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            onAir?.let { "Now playing: $it" } ?: "Live radio",
+            style = MaterialTheme.typography.bodyMedium,
+            color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }

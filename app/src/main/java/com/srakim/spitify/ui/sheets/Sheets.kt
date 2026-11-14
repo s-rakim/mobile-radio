@@ -191,37 +191,40 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
         onDismiss()
         actions.showQueue()
     })
-    SheetOption(MenuIcons.Album, "Go to album", onClick = {
-        onDismiss()
-        actions.openAlbumOf(track)
-    })
-    if (track.hasArtistLink) {
-        SheetOption(MenuIcons.Artist, "Go to artist", onClick = {
+    // Albums, Jams, song radio, credits and the taste profile don't apply to a live station.
+    if (!track.isRadio) {
+        SheetOption(MenuIcons.Album, "Go to album", onClick = {
             onDismiss()
-            actions.openArtistOf(track)
+            actions.openAlbumOf(track)
+        })
+        if (track.hasArtistLink) {
+            SheetOption(MenuIcons.Artist, "Go to artist", onClick = {
+                onDismiss()
+                actions.openArtistOf(track)
+            })
+        }
+        SheetOption(MenuIcons.Jam, "Start a Jam", onClick = {
+            onDismiss()
+            actions.showJam(track)
+        })
+        SheetOption(
+            if (excluded) MenuIcons.Include else MenuIcons.Exclude,
+            if (excluded) "Include track in your taste profile" else "Exclude track from your taste profile",
+            onClick = {
+                val now = library.toggleTasteExcluded(track)
+                actions.toast(if (now) "Won't shape your recommendations" else "Back in your taste profile")
+                onDismiss()
+            },
+        )
+        SheetOption(MenuIcons.Radio, "Go to song radio", onClick = {
+            onDismiss()
+            actions.startRadio(track)
+        })
+        SheetOption(MenuIcons.Credits, "View song credits", onClick = {
+            onDismiss()
+            actions.showCredits(track)
         })
     }
-    SheetOption(MenuIcons.Jam, "Start a Jam", onClick = {
-        onDismiss()
-        actions.showJam(track)
-    })
-    SheetOption(
-        if (excluded) MenuIcons.Include else MenuIcons.Exclude,
-        if (excluded) "Include track in your taste profile" else "Exclude track from your taste profile",
-        onClick = {
-            val now = library.toggleTasteExcluded(track)
-            actions.toast(if (now) "Won't shape your recommendations" else "Back in your taste profile")
-            onDismiss()
-        },
-    )
-    SheetOption(MenuIcons.Radio, "Go to song radio", onClick = {
-        onDismiss()
-        actions.startRadio(track)
-    })
-    SheetOption(MenuIcons.Credits, "View song credits", onClick = {
-        onDismiss()
-        actions.showCredits(track)
-    })
     if (track.canDownload) {
         SheetOption(
             if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
@@ -251,10 +254,17 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
         })
     }
     if (!track.genre.isNullOrBlank()) {
-        SheetOption(Icons.Rounded.Album, "Go to ${track.genre} mix", onClick = {
-            onDismiss()
-            actions.openMix(track.genre)
-        })
+        if (track.isRadio) {
+            SheetOption(MenuIcons.Radio, "More ${track.genre} stations", onClick = {
+                onDismiss()
+                actions.searchFor(track.genre)
+            })
+        } else {
+            SheetOption(Icons.Rounded.Album, "Go to ${track.genre} mix", onClick = {
+                onDismiss()
+                actions.openMix(track.genre)
+            })
+        }
     }
 }
 

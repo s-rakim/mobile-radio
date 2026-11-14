@@ -152,9 +152,10 @@ class PlaybackService : MediaSessionService() {
             val resolved = mediaItems.map { item ->
                 val local = downloads.fileFor(item.mediaId)
                 val requested = item.requestMetadata.mediaUri
+                val mime = item.requestMetadata.extras?.getString(EXTRA_MIME)
                 when {
                     local != null -> item.buildUpon().setUri(Uri.fromFile(local)).build()
-                    requested != null -> item.buildUpon().setUri(requested).build()
+                    requested != null -> item.buildUpon().setUri(requested).setMimeType(mime).build()
                     item.localConfiguration != null -> item
                     else -> item.buildUpon().setUri(AudiusApi.streamUrl(item.mediaId)).build()
                 }

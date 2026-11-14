@@ -170,7 +170,18 @@ private fun GenreTile(name: String, color: Color, onClick: () -> Unit) {
     }
 }
 
-private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"), ARTISTS("Artists"), PLAYLISTS("Albums & playlists") }
+/** Takes one from each list in turn: a, b, c, a, b, c… so every source gets a turn near the top. */
+private fun <T> interleave(vararg lists: List<T>): List<T> {
+    val out = ArrayList<T>(lists.sumOf { it.size })
+    var i = 0
+    while (out.size < lists.sumOf { it.size }) {
+        lists.forEach { list -> if (i < list.size) out += list[i] }
+        i++
+    }
+    return out
+}
+
+private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"), RADIO("Radio"), ARTISTS("Artists"), PLAYLISTS("Albums & playlists") }
 
 /** The focused search page with live results, filters and recent searches. */
 @Composable
@@ -198,10 +209,17 @@ fun SearchInputScreen(initialQuery: String = "") {
     // The Spitify server's sources load on their own so a slow YouTube lookup never holds the rest up.
     val youtube = rememberLoad("search-youtube", debounced) { catalog.searchYouTube(debounced) }
     val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
+    val soundcloud = rememberLoad("search-soundcloud", debounced) { catalog.searchSoundCloud(debounced) }
+    val soundcloudTracks = (soundcloud.state as? Load.Ready)?.data.orEmpty()
+    val radio = rememberLoad("search-radio", debounced) { catalog.searchRadio(debounced) }
+    val stations = (radio.state as? Load.Ready)?.data.orEmpty()
+    val radioBusy = radio.state is Load.Loading
     val youtubeTracks = (youtube.state as? Load.Ready)?.data.orEmpty()
     val openTracks = (openCatalogs.state as? Load.Ready)?.data.orEmpty()
-    val serverBusy = catalog.web.enabled && (youtube.state is Load.Loading || openCatalogs.state is Load.Loading)
+    val serverBusy = catalog.web.enabled &&
+        (youtube.state is Load.Loading || openCatalogs.state is Load.Loading || soundcloud.state is Load.Loading)
     val youtubeBusy = catalog.web.enabled && youtube.state is Load.Loading
+    val soundcloudBusy = catalog.web.enabled && soundcloud.state is Load.Loading
 
     fun saveQuery() = library.addRecentSearch(query)
 
@@ -252,29 +270,60 @@ fun SearchInputScreen(initialQuery: String = "") {
             return@Column
         }
 
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ResultFilter.entries.forEach { f -> Pill(f.label, filter == f, onClick = { filter = f }) }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(ResultFilter.entries.toList()) { f -> Pill(f.label, filter == f, onClick = { filter = f }) }
         }
 
         when (val state = results.state) {
             is Load.Loading -> SkeletonTrackList()
             is Load.Failed -> ErrorState(state.message, results.retry)
             is Load.Ready -> {
-                val data = state.data.let { it.copy(tracks = youtubeTracks + it.tracks + openTracks) }
-                if (data.isEmpty && serverBusy) {
+                // Top songs from each big source first, so one source can't push the others off the top.
+                val data = state.data.let {
+                    it.copy(tracks = interleave(youtubeTracks, soundcloudTracks, it.tracks) + openTracks)
+                }
+                val radioContext = PlayContext("radio-search:$debounced", "\"$debounced\" stations", "RADIO")
+                if (filter == ResultFilter.RADIO) {
+                    when {
+                        stations.isNotEmpty() -> LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
+                            itemsIndexed(stations, key = { _, t -> "r" + t.id }) { i, t ->
+                                TrackRow(
+                                    track = t,
+                                    isCurrent = playback.current?.id == t.id,
+                                    isPlaying = playback.isPlaying,
+                                    liked = lib.liked.any { it.id == t.id },
+                                    onClick = { saveQuery(); player.play(stations, i, radioContext) },
+                                    onMore = { actions.showTrackMenu(t, null) },
+                                    modifier = Modifier.appear(i),
+                                )
+                            }
+                        }
+                        radioBusy -> SkeletonTrackList()
+                        else -> EmptyState("No stations for \"$debounced\"", "Try a station name, a city, or a genre like gospel, reggae or news.")
+                    }
+                    return@Column
+                }
+                if (data.isEmpty && stations.isEmpty() && (serverBusy || radioBusy)) {
                     SkeletonTrackList()
                     return@Column
                 }
-                if (data.isEmpty) {
+                if (data.isEmpty && stations.isEmpty()) {
                     EmptyState("Couldn't find \"$debounced\"", "Try searching again using a different spelling or keyword.")
                     return@Column
                 }
                 val context = PlayContext("search:$debounced", "\"$debounced\" in Search", "SEARCH")
                 LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
-                    if (youtubeBusy && filter != ResultFilter.ARTISTS && filter != ResultFilter.PLAYLISTS) {
+                    if ((youtubeBusy || soundcloudBusy) && filter != ResultFilter.ARTISTS && filter != ResultFilter.PLAYLISTS) {
                         item {
                             Text(
-                                "Still checking YouTube…",
+                                when {
+                                    youtubeBusy && soundcloudBusy -> "Still checking YouTube and SoundCloud…"
+                                    youtubeBusy -> "Still checking YouTube…"
+                                    else -> "Still checking SoundCloud…"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SpitifyColors.TextSecondary,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -297,6 +346,22 @@ fun SearchInputScreen(initialQuery: String = "") {
                                     onMore = { actions.showTrackMenu(t, null) },
                                     modifier = Modifier.appear(i),
                                 )
+                            }
+                            if (stations.isNotEmpty()) {
+                                item {
+                                    SectionHeader("Radio stations")
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        itemsIndexed(stations.take(10), key = { _, t -> "rs" + t.id }) { i, t ->
+                                            MediaCard(
+                                                t.title,
+                                                "Live • " + (t.genre?.replaceFirstChar { it.titlecase() } ?: "Radio"),
+                                                onClick = { saveQuery(); player.play(stations, i, radioContext) },
+                                                image = t.artwork,
+                                                width = 120.dp,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             if (data.artists.isNotEmpty()) {
                                 item {

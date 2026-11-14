@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -111,6 +110,8 @@ import com.srakim.spitify.ui.components.rememberPop
 import com.srakim.spitify.ui.components.rememberSmoothProgress
 import com.srakim.spitify.ui.components.springClick
 import com.srakim.spitify.ui.sheets.SheetOption
+import com.srakim.spitify.ui.sheets.TrackMenuHeader
+import com.srakim.spitify.ui.sheets.TrackMenuOptions
 import com.srakim.spitify.ui.sheets.SpitifySheet
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.delay
@@ -171,7 +172,6 @@ fun NowPlayingScreen(onClose: () -> Unit) {
         }
     }
 
-    var queueOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var lyricsOpen by remember { mutableStateOf(false) }
     var lyrics by remember(track.id) { mutableStateOf<Lyrics?>(null) }
@@ -395,7 +395,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         }) {
                             Icon(Icons.Rounded.Share, contentDescription = "Share", modifier = Modifier.size(22.dp))
                         }
-                        IconButton(onClick = { queueOpen = true }) {
+                        IconButton(onClick = actions.showQueue) {
                             Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Queue", modifier = Modifier.size(24.dp))
                         }
                     }
@@ -463,7 +463,6 @@ fun NowPlayingScreen(onClose: () -> Unit) {
         }
     }
 
-    if (queueOpen) QueueSheet(onDismiss = { queueOpen = false })
     if (menuOpen) PlayerMenu(onDismiss = { menuOpen = false })
     if (lyricsOpen) lyrics?.let { FullLyrics(it, color, onDismiss = { lyricsOpen = false }) }
 }
@@ -630,54 +629,6 @@ private fun FullLyrics(lyrics: Lyrics, color: Color, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun QueueSheet(onDismiss: () -> Unit) {
-    val player = LocalPlayer.current
-    val state by player.state.collectAsStateWithLifecycle()
-    SpitifySheet(onDismiss) {
-        Text("Queue", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-        state.current?.let { now ->
-            Text("Now playing", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(now.artwork, Modifier.size(48.dp))
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(now.title, style = MaterialTheme.typography.bodyLarge, color = SpitifyColors.Accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(now.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                }
-            }
-        }
-        if (state.upNext.isNotEmpty()) {
-            Text(
-                state.context?.let { "Next from: ${it.title}" } ?: "Next up",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-            )
-        }
-        LazyColumn(Modifier.heightIn(max = 480.dp)) {
-            itemsIndexed(state.upNext, key = { pos, e -> "${e.index}:${e.track.id}:$pos" }) { _, entry ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { player.skipTo(entry.index) }
-                        .padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Artwork(entry.track.artwork, Modifier.size(44.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(entry.track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(entry.track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                    }
-                    IconButton(onClick = { player.removeFromQueue(entry.index) }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Remove from queue", tint = SpitifyColors.TextSecondary)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun PlayerMenu(onDismiss: () -> Unit) {
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -692,12 +643,10 @@ private fun PlayerMenu(onDismiss: () -> Unit) {
         }
     }
 
-    SpitifySheet(onDismiss) {
+    SpitifySheet(onDismiss, scrollable = true) {
         if (!sleepPicker) {
-            SheetOption(Icons.Rounded.AddCircleOutline, "Add to playlist", onClick = {
-                onDismiss()
-                actions.showAddToPlaylist(track)
-            })
+            TrackMenuHeader(track)
+            TrackMenuOptions(track, playlistId = null, onDismiss = onDismiss)
             val ends = state.sleepTimerEndsAt
             SheetOption(
                 Icons.Rounded.Bedtime,
@@ -705,12 +654,6 @@ private fun PlayerMenu(onDismiss: () -> Unit) {
                 tint = if (ends != null) SpitifyColors.Accent else SpitifyColors.TextSecondary,
                 onClick = { sleepPicker = true },
             )
-            if (track.hasArtistLink) {
-                SheetOption(Icons.Rounded.MoreVert, "Go to artist", onClick = {
-                    onDismiss()
-                    actions.openArtistOf(track)
-                })
-            }
         } else {
             Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
             listOf(5, 10, 15, 30, 45, 60).forEach { minutes ->

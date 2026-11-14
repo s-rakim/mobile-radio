@@ -103,6 +103,11 @@ import com.srakim.spitify.ui.sheets.CreatePlaylistDialog
 import com.srakim.spitify.ui.sheets.CreateSheet
 import com.srakim.spitify.ui.sheets.MiniPlayer
 import com.srakim.spitify.ui.sheets.TrackMenuSheet
+import com.srakim.spitify.ui.sheets.QueueSheet
+import com.srakim.spitify.ui.sheets.CreditsSheet
+import com.srakim.spitify.ui.sheets.JamSheet
+import com.srakim.spitify.data.Jam
+import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.ui.theme.SpitifyColors
 import com.srakim.spitify.ui.components.Motion
 import com.srakim.spitify.ui.components.rememberPop
@@ -122,18 +127,25 @@ fun SpitifyRoot(app: SpitifyApp) {
     var createPlaylist by remember { mutableStateOf(false) }
     var createWithTrack by remember { mutableStateOf<Track?>(null) }
     var createSheet by remember { mutableStateOf(false) }
+    var queueOpen by remember { mutableStateOf(false) }
+    var creditsFor by remember { mutableStateOf<Track?>(null) }
+    var jamFor by remember { mutableStateOf<Track?>(null) }
 
     val actions = remember(nav) {
         AppActions(
             nav = nav,
             snackbar = snackbar,
             scope = scope,
+            app = app,
             showTrackMenu = { track, playlistId -> trackMenu = TrackMenuRequest(track, playlistId) },
             showAddToPlaylist = { addToPlaylist = it },
             showCreatePlaylist = { track ->
                 createWithTrack = track
                 createPlaylist = true
             },
+            showQueue = { queueOpen = true },
+            showCredits = { creditsFor = it },
+            showJam = { jamFor = it },
             openPlayer = { playerOpen = true },
             closePlayer = { playerOpen = false },
         )
@@ -144,6 +156,23 @@ fun SpitifyRoot(app: SpitifyApp) {
 
     LaunchedEffect(Unit) {
         app.player.messages.collect { actions.toast(it) }
+    }
+    // Someone opened a Jam invite: load the host's songs and jump to where they are now.
+    val invite by Jam.incoming.collectAsStateWithLifecycle()
+    LaunchedEffect(invite) {
+        val inv = invite ?: return@LaunchedEffect
+        Jam.incoming.value = null
+        actions.toast("Joining the Jam…")
+        val tracks = runCatching { app.api.tracksByIds(inv.ids) }.getOrDefault(emptyList())
+        if (tracks.isEmpty()) {
+            actions.toast("Couldn't load that Jam. Check your connection and try again.")
+            return@LaunchedEffect
+        }
+        val (index, offset) = Jam.catchUp(inv, tracks)
+        app.player.play(tracks, index, PlayContext("jam", "Jam", "JAM"), shuffle = false)
+        if (offset > 0) app.player.seekTo(offset)
+        playerOpen = true
+        actions.toast("You're in the Jam")
     }
     // Tablets and wide windows swap the bottom bar for a rail down the left side.
     val screenWidth = LocalConfiguration.current.screenWidthDp
@@ -244,6 +273,13 @@ fun SpitifyRoot(app: SpitifyApp) {
                 playlistId = req.playlistId,
                 onDismiss = { trackMenu = null },
             )
+        }
+        if (queueOpen) QueueSheet(onDismiss = { queueOpen = false })
+        creditsFor?.let { track ->
+            CreditsSheet(track = track, onDismiss = { creditsFor = null })
+        }
+        jamFor?.let { track ->
+            JamSheet(track = track, onDismiss = { jamFor = null })
         }
         addToPlaylist?.let { track ->
             AddToPlaylistSheet(track = track, onDismiss = { addToPlaylist = null })

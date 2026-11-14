@@ -24,6 +24,10 @@ data class Track(
     val directUrl: String? = null,
     /** Where a song from the Spitify server came from, e.g. "YouTube" or "Jamendo". */
     val origin: String? = null,
+    /** Album name, when the source knows it. */
+    val album: String? = null,
+    /** Id that [com.srakim.spitify.data.Catalog.playlist] can open, when the album has a page. */
+    val albumId: String? = null,
 ) {
     val source: String
         get() = when {
@@ -49,6 +53,9 @@ data class Track(
 
     /** Whether tapping the artist's name can go anywhere. */
     val hasArtistLink: Boolean get() = artistId.isNotBlank() || artistSearchName.isNotBlank()
+
+    /** Plain Audius songs, the only ones another phone can look up by id. */
+    val isAudius: Boolean get() = source == "Audius"
 
     /** Songs already on the phone don't need saving. */
     val canDownload: Boolean get() = !isLocal

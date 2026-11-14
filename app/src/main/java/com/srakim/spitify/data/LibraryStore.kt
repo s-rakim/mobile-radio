@@ -17,6 +17,24 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
+/**
+ * Genres the listener leans towards, strongest first. Likes count double, recent plays once,
+ * and songs left out of the taste profile don't count at all.
+ */
+fun LibraryState.tasteGenres(): List<String> {
+    val skip = tasteExcluded.toHashSet()
+    val score = HashMap<String, Int>()
+    fun add(track: Track, weight: Int) {
+        if (track.id in skip) return
+        val genre = track.genre?.takeIf { it.isNotBlank() } ?: return
+        val key = Genres.all.firstOrNull { it.name.equals(genre, true) }?.name ?: return
+        score[key] = (score[key] ?: 0) + weight
+    }
+    liked.forEach { add(it, 2) }
+    recentTracks.forEach { add(it, 1) }
+    return score.entries.sortedByDescending { it.value }.map { it.key }
+}
+
 @Serializable
 data class LibraryState(
     val liked: List<Track> = emptyList(),
@@ -26,6 +44,8 @@ data class LibraryState(
     val recentTracks: List<Track> = emptyList(),
     val recentItems: List<RecentItem> = emptyList(),
     val recentSearches: List<String> = emptyList(),
+    /** Songs the listener asked to keep out of their taste profile. */
+    val tasteExcluded: List<String> = emptyList(),
 )
 
 /**
@@ -126,6 +146,17 @@ class LibraryStore(context: Context) {
         edit { state ->
             state.copy(recentTracks = (listOf(track) + state.recentTracks.filterNot { it.id == track.id }).take(50))
         }
+    }
+
+    fun isTasteExcluded(trackId: String) = trackId in _state.value.tasteExcluded
+
+    /** Returns true when the song is now left out of the taste profile. */
+    fun toggleTasteExcluded(track: Track): Boolean {
+        val next = edit { state ->
+            val ids = state.tasteExcluded
+            state.copy(tasteExcluded = if (track.id in ids) ids - track.id else (listOf(track.id) + ids).take(500))
+        }
+        return track.id in next.tasteExcluded
     }
 
     fun recordVisit(item: RecentItem) {

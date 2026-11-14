@@ -18,25 +18,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SaveAlt
-import androidx.compose.material.icons.rounded.RemoveCircleOutline
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -74,6 +71,7 @@ import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.components.Artwork
+import com.srakim.spitify.ui.components.MenuIcons
 import com.srakim.spitify.ui.components.MosaicArt
 import com.srakim.spitify.ui.components.OutlineButton
 import com.srakim.spitify.ui.components.WhiteButton
@@ -81,7 +79,7 @@ import com.srakim.spitify.ui.theme.SpitifyColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpitifySheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+fun SpitifySheet(onDismiss: () -> Unit, scrollable: Boolean = false, content: @Composable () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -89,7 +87,8 @@ fun SpitifySheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
         contentColor = SpitifyColors.TextPrimary,
         scrimColor = Color.Black.copy(alpha = 0.6f),
     ) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) { content() }
+        val scroll = if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier
+        Column(scroll.navigationBarsPadding().padding(bottom = 12.dp)) { content() }
     }
 }
 
@@ -112,6 +111,31 @@ fun SheetOption(icon: ImageVector, label: String, onClick: () -> Unit, tint: Col
 /** Long-press or "more" on any song. */
 @Composable
 fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
+    SpitifySheet(onDismiss, scrollable = true) {
+        TrackMenuHeader(track)
+        TrackMenuOptions(track, playlistId, onDismiss)
+    }
+}
+
+@Composable
+fun TrackMenuHeader(track: Track) {
+    Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Artwork(track.artwork, Modifier.size(52.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+    }
+    HorizontalDivider(color = SpitifyColors.Divider, modifier = Modifier.padding(vertical = 8.dp))
+}
+
+/**
+ * Everything you can do with one song, in the same order as Spotify's menu. Shared by the song
+ * menu and the player's menu so the two never drift apart.
+ */
+@Composable
+fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -120,99 +144,116 @@ fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
     val lib by library.state.collectAsStateWithLifecycle()
     val dl by downloads.state.collectAsStateWithLifecycle()
     val liked = lib.liked.any { it.id == track.id }
+    val excluded = track.id in lib.tasteExcluded
     val downloaded = dl.has(track.id)
 
-    SpitifySheet(onDismiss) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(track.artwork, Modifier.size(52.dp))
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-            }
+    SheetOption(
+        if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+        if (liked) "Remove from Liked Songs" else "Add to Liked Songs",
+        tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextSecondary,
+        onClick = {
+            val now = library.toggleLike(track)
+            actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+            onDismiss()
+        },
+    )
+    SheetOption(MenuIcons.Share, "Share", onClick = {
+        val text = buildString {
+            append("${track.title} by ${track.artist}")
+            track.link?.let { append("\n").append(it) }
         }
-        HorizontalDivider(color = SpitifyColors.Divider, modifier = Modifier.padding(vertical = 8.dp))
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        context.startActivity(Intent.createChooser(send, "Share song"))
+        onDismiss()
+    })
+    SheetOption(MenuIcons.AddToPlaylist, "Add to playlist", onClick = {
+        onDismiss()
+        actions.showAddToPlaylist(track)
+    })
+    if (playlistId != null) {
+        SheetOption(MenuIcons.RemoveFromPlaylist, "Remove from this playlist", onClick = {
+            library.removeFromPlaylist(playlistId, track.id)
+            actions.toast("Removed from playlist")
+            onDismiss()
+        })
+    }
+    SheetOption(MenuIcons.AddToQueue, "Add to Queue", onClick = {
+        player.addToQueue(track)
+        actions.toast("Added to queue")
+        onDismiss()
+    })
+    SheetOption(Icons.Rounded.SkipNext, "Play next", onClick = {
+        player.playNext(track)
+        actions.toast("Playing next")
+        onDismiss()
+    })
+    SheetOption(MenuIcons.Queue, "Go to Queue", onClick = {
+        onDismiss()
+        actions.showQueue()
+    })
+    SheetOption(MenuIcons.Album, "Go to album", onClick = {
+        onDismiss()
+        actions.openAlbumOf(track)
+    })
+    if (track.hasArtistLink) {
+        SheetOption(MenuIcons.Artist, "Go to artist", onClick = {
+            onDismiss()
+            actions.openArtistOf(track)
+        })
+    }
+    SheetOption(MenuIcons.Jam, "Start a Jam", onClick = {
+        onDismiss()
+        actions.showJam(track)
+    })
+    SheetOption(
+        if (excluded) MenuIcons.Include else MenuIcons.Exclude,
+        if (excluded) "Include track in your taste profile" else "Exclude track from your taste profile",
+        onClick = {
+            val now = library.toggleTasteExcluded(track)
+            actions.toast(if (now) "Won't shape your recommendations" else "Back in your taste profile")
+            onDismiss()
+        },
+    )
+    SheetOption(MenuIcons.Radio, "Go to song radio", onClick = {
+        onDismiss()
+        actions.startRadio(track)
+    })
+    SheetOption(MenuIcons.Credits, "View song credits", onClick = {
+        onDismiss()
+        actions.showCredits(track)
+    })
+    if (track.canDownload) {
         SheetOption(
-            if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            if (liked) "Remove from Liked Songs" else "Add to Liked Songs",
-            tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextSecondary,
+            if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
+            if (downloaded) "Remove download" else "Download",
+            tint = if (downloaded) SpitifyColors.Accent else SpitifyColors.TextSecondary,
             onClick = {
-                val now = library.toggleLike(track)
-                actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+                if (downloaded) {
+                    downloads.remove(listOf(track.id))
+                    actions.toast("Download removed")
+                } else if (downloads.download(listOf(track))) {
+                    actions.toast("Downloading")
+                } else {
+                    actions.toast("Downloads are set to Wi-Fi only")
+                }
                 onDismiss()
             },
         )
-        SheetOption(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist", onClick = {
-            onDismiss()
-            actions.showAddToPlaylist(track)
-        })
-        if (playlistId != null) {
-            SheetOption(Icons.Rounded.RemoveCircleOutline, "Remove from this playlist", onClick = {
-                library.removeFromPlaylist(playlistId, track.id)
-                actions.toast("Removed from playlist")
-                onDismiss()
-            })
-        }
-        SheetOption(Icons.Rounded.SkipNext, "Play next", onClick = {
-            player.playNext(track)
-            actions.toast("Playing next")
-            onDismiss()
-        })
-        SheetOption(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue", onClick = {
-            player.addToQueue(track)
-            actions.toast("Added to queue")
-            onDismiss()
-        })
-        if (track.canDownload) {
-            SheetOption(
-                if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
-                if (downloaded) "Remove download" else "Download",
-                tint = if (downloaded) SpitifyColors.Accent else SpitifyColors.TextSecondary,
-                onClick = {
-                    if (downloaded) {
-                        downloads.remove(listOf(track.id))
-                        actions.toast("Download removed")
-                    } else if (downloads.download(listOf(track))) {
-                        actions.toast("Downloading")
-                    } else {
-                        actions.toast("Downloads are set to Wi-Fi only")
-                    }
-                    onDismiss()
-                },
-            )
-        }
-        if (track.canDownload) {
-            SheetOption(Icons.Rounded.SaveAlt, "Save to phone", onClick = {
-                actions.toast("Saving to your phone…")
-                downloads.saveToPhone(track) { result ->
-                    result.fold(
-                        { folder -> actions.toast("Saved to $folder") },
-                        { actions.toast(it.message ?: "Couldn't save the song") },
-                    )
-                }
-                onDismiss()
-            })
-        }
-        if (track.hasArtistLink) {
-            SheetOption(Icons.Rounded.Person, "Go to artist", onClick = {
-                onDismiss()
-                actions.openArtistOf(track)
-            })
-        }
-        if (!track.genre.isNullOrBlank()) {
-            SheetOption(Icons.Rounded.Album, "Go to ${track.genre} mix", onClick = {
-                onDismiss()
-                actions.openMix(track.genre)
-            })
-        }
-        SheetOption(Icons.Rounded.Share, "Share", onClick = {
-            val text = buildString {
-                append("${track.title} by ${track.artist}")
-                track.link?.let { append("\n").append(it) }
+        SheetOption(Icons.Rounded.SaveAlt, "Save to phone", onClick = {
+            actions.toast("Saving to your phone…")
+            downloads.saveToPhone(track) { result ->
+                result.fold(
+                    { folder -> actions.toast("Saved to $folder") },
+                    { actions.toast(it.message ?: "Couldn't save the song") },
+                )
             }
-            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-            context.startActivity(Intent.createChooser(send, "Share song"))
             onDismiss()
+        })
+    }
+    if (!track.genre.isNullOrBlank()) {
+        SheetOption(Icons.Rounded.Album, "Go to ${track.genre} mix", onClick = {
+            onDismiss()
+            actions.openMix(track.genre)
         })
     }
 }

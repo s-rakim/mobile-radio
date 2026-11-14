@@ -27,7 +27,7 @@ app/src/main/java/com/srakim/spitify/
     ├── AppState.kt        CompositionLocals, routes, AppActions, rememberLoad
     ├── theme/Theme.kt     Palettes, colour tokens, typography
     ├── components/        Artwork, rows, cards, pills, skeletons, buttons
-    ├── sheets/            Mini player, song menu, add to playlist, create
+    ├── sheets/            Mini player, song menu, queue, credits, Jam, add to playlist, create
     └── screens/           Home, Search, Library, collections, artist, player, settings
 ```
 

@@ -111,6 +111,8 @@ class SubsonicApi(private val client: OkHttpClient, private val settings: Settin
             durationSec = text("duration")?.toIntOrNull() ?: 0,
             genre = text("genre"),
             streamUrl = streamUrl(songId),
+            album = text("album"),
+            albumId = text("albumId")?.let { ALBUM_PREFIX + it },
         )
     }
 

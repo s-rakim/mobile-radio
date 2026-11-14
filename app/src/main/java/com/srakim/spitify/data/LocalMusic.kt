@@ -54,6 +54,7 @@ class LocalMusic(private val context: Context) {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
         )
         val out = ArrayList<Track>()
@@ -68,6 +69,7 @@ class LocalMusic(private val context: Context) {
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val albumNameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
@@ -79,6 +81,7 @@ class LocalMusic(private val context: Context) {
                     artwork = art,
                     artworkLarge = art,
                     durationSec = (c.getLong(durationCol) / 1000).toInt(),
+                    album = c.getString(albumNameCol)?.takeUnless { it.isBlank() || it == MediaStore.UNKNOWN_STRING },
                     streamUrl = ContentUris.withAppendedId(collection, id).toString(),
                 )
             }

@@ -20,6 +20,7 @@ import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.Track
+import com.srakim.spitify.data.tasteGenres
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -215,8 +216,11 @@ class PlayerController(
         autoplayFetchedFor = last.id
         scope.launch {
             val queued = (0 until c.mediaItemCount).mapTo(HashSet()) { c.getMediaItemAt(it).mediaId }
-            val more = runCatching { api.trendingTracks(genre = last.genre, limit = 30) }.getOrDefault(emptyList())
-                .filterNot { it.id in queued }
+            val lib = library.state.value
+            // A song left out of the taste profile doesn't get to steer what plays next.
+            val genre = if (last.id in lib.tasteExcluded) lib.tasteGenres().firstOrNull() else last.genre
+            val more = runCatching { api.trendingTracks(genre = genre, limit = 30) }.getOrDefault(emptyList())
+                .filterNot { it.id in queued || it.id in lib.tasteExcluded }
                 .shuffled()
                 .take(10)
             if (more.isEmpty()) return@launch

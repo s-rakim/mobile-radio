@@ -1,6 +1,7 @@
 package com.srakim.spitify
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -12,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.srakim.spitify.data.Jam
 import com.srakim.spitify.ui.SpitifyRoot
 import com.srakim.spitify.ui.theme.SpitifyTheme
 
@@ -36,10 +38,19 @@ class MainActivity : ComponentActivity() {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
+        Jam.parse(intent?.data)?.let { Jam.incoming.value = it }
+
         setContent {
             SpitifyTheme {
                 SpitifyRoot(app)
             }
         }
+    }
+
+    // The activity is singleTask, so a Jam link tapped while Spitify is open lands here.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        Jam.parse(intent.data)?.let { Jam.incoming.value = it }
     }
 }

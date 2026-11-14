@@ -20,6 +20,8 @@ import com.srakim.spitify.data.LyricsApi
 import com.srakim.spitify.data.SettingsStore
 import com.srakim.spitify.data.ThemeStore
 import com.srakim.spitify.data.LibraryStore
+import com.srakim.spitify.data.PlayContext
+import com.srakim.spitify.data.SongRadio
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.playback.PlayerController
 import kotlinx.coroutines.CancellationException
@@ -86,9 +88,13 @@ class AppActions(
     private val nav: NavHostController,
     private val snackbar: SnackbarHostState,
     private val scope: CoroutineScope,
+    private val app: SpitifyApp,
     val showTrackMenu: (track: Track, playlistId: String?) -> Unit,
     val showAddToPlaylist: (track: Track) -> Unit,
     val showCreatePlaylist: (withTrack: Track?) -> Unit,
+    val showQueue: () -> Unit,
+    val showCredits: (track: Track) -> Unit,
+    val showJam: (track: Track) -> Unit,
     val openPlayer: () -> Unit,
     val closePlayer: () -> Unit,
 ) {
@@ -122,6 +128,44 @@ class AppActions(
         track.artistSearchName.isNotBlank() -> searchFor(track.artistSearchName)
         else -> Unit
     }
+    /**
+     * The album page when the song belongs to one. Audius only says so on the full song record,
+     * so that's fetched first. Singles have no album, so they land on the artist instead.
+     */
+    fun openAlbumOf(track: Track) {
+        track.albumId?.let { return openPlaylist(it) }
+        if (!track.isAudius) {
+            val album = track.album
+            if (!album.isNullOrBlank()) searchFor(album) else singleFallback(track)
+            return
+        }
+        scope.launch {
+            val details = runCatching { app.api.trackDetails(track.id) }.getOrNull()
+            val albumId = details?.albumId
+            if (albumId != null) openPlaylist(albumId) else singleFallback(track)
+        }
+    }
+
+    private fun singleFallback(track: Track) {
+        toast("${track.title} is a single")
+        openArtistOf(track)
+    }
+
+    /** Builds a station from [track] and starts it straight away. */
+    fun startRadio(track: Track) {
+        toast("Starting ${track.title} Radio")
+        scope.launch {
+            val skip = app.library.state.value.tasteExcluded.toSet()
+            val station = SongRadio.build(track, app.catalog, skip)
+            if (station.size <= 1) {
+                toast("Couldn't find songs like this one right now")
+                return@launch
+            }
+            app.player.play(station, 0, PlayContext("radio:${track.id}", "${track.title} Radio", "RADIO"))
+            openPlayer()
+        }
+    }
+
     fun openSettings() = go("settings")
     fun openEqualizer() = go("settings/equalizer")
     fun openThemes() = go("settings/theme")

@@ -36,7 +36,15 @@
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:theme="@style/Theme.Spitify.Splash"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <!-- Jam invites: spitify://jam?t=... from a scanned code or a shared link. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="spitify" android:host="jam" />
+            </intent-filter>
+        </activity>
 
         <!-- Two launcher entries pointing at the same screen. Settings > App icon turns one on
              and the other off, which is how the home screen icon gets swapped. -->

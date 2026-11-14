@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.srakim.spitify.data.Artist
 import com.srakim.spitify.data.Genres
+import com.srakim.spitify.data.tasteGenres
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.Playlist
 import com.srakim.spitify.data.RecentItem
@@ -164,6 +165,11 @@ fun HomeScreen() {
         val showPlaylists = filter == HomeFilter.ALL || filter == HomeFilter.PLAYLISTS
         val showArtists = filter == HomeFilter.ALL || filter == HomeFilter.ARTISTS
 
+        // Mixes for the genres you actually play come first; the rest fill in behind.
+        val madeForYou = lib.tasteGenres().let { taste ->
+            (taste.mapNotNull { name -> Genres.all.firstOrNull { it.name == name } } + Genres.all).distinct().take(10)
+        }
+
         if (showMusic && lib.recentTracks.isNotEmpty()) {
             item {
                 SectionHeader("Recently played", action = "Show all", onAction = actions::openHistory)
@@ -180,7 +186,7 @@ fun HomeScreen() {
                     item {
                         SectionHeader("Made for you")
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            items(Genres.all.take(10), key = { it.name }) { genre ->
+                            items(madeForYou, key = { it.name }) { genre ->
                                 MediaCard(
                                     title = "${genre.name} Mix",
                                     subtitle = "The biggest ${genre.name.lowercase()} tracks right now",

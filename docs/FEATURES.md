@@ -75,17 +75,26 @@ Playlists, mixes, Liked Songs, history and downloads all share one layout:
 
 ## Song menu
 
-Long-press any song or tap its three dots:
+Long-press any song or tap its three dots. The order and the thin outlined icons follow Spotify's menu:
 
 - Add to / remove from Liked Songs
-- Add to playlist
-- Remove from this playlist (in your own playlists)
-- Play next
-- Add to queue
-- Download or remove the download
-- Go to artist
-- Go to the song's genre mix
 - Share
+- Add to playlist
+- Remove from this playlist (only inside one of your playlists)
+- Add to Queue, and Play next
+- Go to Queue: the queue sheet, from anywhere in the app
+- Go to album: the album page when the song is on one (Audius albums and your server's albums). Singles go to the artist instead
+- Go to artist
+- Start a Jam: see below
+- Exclude track from your taste profile. Left-out songs don't count towards the order of the Made for you mixes or steer autoplay. Tap again to put it back
+- Go to song radio: a 50-song station from the song itself, more from the same artist, and what's trending in its genre, skipping anything you've left out of your taste profile
+- View song credits: performer, plus whatever the uploader filled in on Audius (writers, producers, label lines, album, mood, key, BPM, release date, ISRC, licence, tags and description). Songs from your phone or server show their own tags
+- Download or remove the download, and Save to phone
+- Go to the song's genre mix
+
+### Jam
+
+Start a Jam from any Audius song. The song starts playing and the sheet shows a QR code. A friend scans it with their phone camera (or taps the shared invite link) and Spitify on their phone loads the same queue and jumps to where you are, catching up for however long the invite sat unopened. There's no server involved, so after joining each phone plays on its own. Songs from your phone or your own server are left out because the other phone can't reach them.
 
 ## Player
 
@@ -102,7 +111,7 @@ Long-press any song or tap its three dots:
 - Share and Queue buttons
 - Lyrics card below the controls. With synced lyrics the current line lights up. Tap the card for full-screen lyrics, where tapping a line jumps there
 - About the artist card
-- Menu with Add to playlist, Sleep timer (5 to 60 minutes, shows time left) and Go to artist
+- Menu with the full song menu above plus Sleep timer (5 to 60 minutes, shows time left)
 
 **Queue:** the song playing now, then everything coming up in play order. Tap a song to jump to it, or the X to remove it.
 

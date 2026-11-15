@@ -110,6 +110,33 @@ app.delete('/api/jam', signedIn, socialRoute((req) => social.endJam(req.user)));
 app.get('/api/jam/:name', signedIn, socialRoute((req) => social.jamOf(req.params.name)));
 app.get('/api/blend/:name', signedIn, socialRoute((req) => social.blend(req.user, req.params.name)));
 
+// ---- AI Playlist and AI DJ. See services/aiDj.js for the keys it needs. ----
+// Signed-in only, and rate limited per account, so nobody else spends your AI credit.
+
+const aiDj = require('./services/aiDj');
+const aiUse = new Map();
+function aiLimited(user) {
+  const now = Date.now();
+  const recent = (aiUse.get(user) || []).filter((t) => now - t < 60 * 60 * 1000);
+  recent.push(now);
+  aiUse.set(user, recent);
+  return recent.length > Number(process.env.AI_HOURLY_LIMIT || 60);
+}
+function aiRoute(action) {
+  return async (req, res) => {
+    if (aiLimited(req.user)) return res.status(429).json({ error: 'The DJ needs a break, try again in a bit' });
+    try {
+      res.json(await action(req.body || {}));
+    } catch (err) {
+      console.warn('AI route failed:', err.message);
+      res.status(err.status && err.status < 500 ? err.status : 502).json({ error: err.status === 400 ? err.message : "The DJ couldn't put that together right now" });
+    }
+  };
+}
+app.get('/api/ai/status', signedIn, (req, res) => res.json(aiDj.status()));
+app.post('/api/ai/playlist', signedIn, aiRoute((body) => aiDj.playlist(body)));
+app.post('/api/ai/dj', signedIn, aiRoute((body) => aiDj.dj(body)));
+
 for (const [name, [search, empty]] of Object.entries(catalogs)) {
   app.get(`/api/${name}`, async (req, res) => {
     const q = readQuery(req, res);

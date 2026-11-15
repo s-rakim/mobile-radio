@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -377,9 +378,13 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ToggleIcon(
-                            icon = Icons.Rounded.Shuffle,
+                            icon = if (state.smartShuffle) Icons.Rounded.AutoAwesome else Icons.Rounded.Shuffle,
                             on = state.shuffle,
-                            description = if (state.shuffle) "Turn shuffle off" else "Turn shuffle on",
+                            description = when {
+                                state.smartShuffle -> "Turn shuffle off"
+                                state.shuffle -> "Smart Shuffle"
+                                else -> "Turn shuffle on"
+                            },
                             onClick = player::toggleShuffle,
                         )
                         Box(Modifier.size(56.dp).springClick(pressed = 0.82f, onClick = player::previous), contentAlignment = Alignment.Center) {

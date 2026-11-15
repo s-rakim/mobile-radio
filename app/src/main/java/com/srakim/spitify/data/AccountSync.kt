@@ -40,6 +40,7 @@ data class SyncedLibrary(
     val playlists: List<UserPlaylist> = emptyList(),
     val savedPlaylists: List<Playlist> = emptyList(),
     val followedArtists: List<Artist> = emptyList(),
+    val folders: List<PlaylistFolder> = emptyList(),
 )
 
 data class AccountState(
@@ -272,7 +273,7 @@ class AccountSync(
         const val KEY_DIRTY = "dirty"
         const val PUSH_DELAY_MS = 2_000L
 
-        fun LibraryState.synced() = SyncedLibrary(liked, playlists, savedPlaylists, followedArtists)
+        fun LibraryState.synced() = SyncedLibrary(liked, playlists, savedPlaylists, followedArtists, folders)
 
         /** Everything from both sides. For a playlist on both, the most recently edited copy wins. */
         fun merge(local: SyncedLibrary, remote: SyncedLibrary): SyncedLibrary {
@@ -286,6 +287,7 @@ class AccountSync(
                 playlists = playlists,
                 savedPlaylists = union(local.savedPlaylists, remote.savedPlaylists) { it.id },
                 followedArtists = union(local.followedArtists, remote.followedArtists) { it.id },
+                folders = union(local.folders, remote.folders) { it.id },
             )
         }
     }

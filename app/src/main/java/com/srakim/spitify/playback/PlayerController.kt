@@ -39,7 +39,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** One song after the current one. [queued] is true for songs added with Add to Queue or Play next. */
-data class QueueEntry(val index: Int, val track: Track, val queued: Boolean = false)
+data class QueueEntry(val index: Int, val track: Track, val queued: Boolean = false, val suggested: Boolean = false)
 
 data class PlaybackState(
     val current: Track? = null,
@@ -48,6 +48,8 @@ data class PlaybackState(
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val shuffle: Boolean = false,
+    /** Smart Shuffle: shuffle plus suggested songs slipped in every few tracks. */
+    val smartShuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val upNext: List<QueueEntry> = emptyList(),
     val context: PlayContext? = null,
@@ -95,6 +97,11 @@ class PlayerController(
      * dragged around while shuffled, and Reshuffle is just another reorder.
      */
     private var shuffleOn = settings.current.shuffle
+    private var smartOn = false
+
+    /** Songs Smart Shuffle added, so turning it off can take them out again. */
+    private val suggestedIds = HashSet<String>()
+    private var lastBroadcast: Pair<String?, Boolean>? = null
 
     /** The order the songs came in, so turning shuffle off can put them back. */
     private var originalOrder: List<Track> = emptyList()
@@ -174,6 +181,20 @@ class PlayerController(
     }
 
     fun play(tracks: List<Track>, startIndex: Int = 0, from: PlayContext? = null, shuffle: Boolean? = null) {
+        if (settings.current.offlineMode) {
+            // Offline mode only plays what's on the phone: downloads and local files.
+            val wanted = tracks.getOrNull(startIndex)
+            val playable = tracks.filter { it.isLocal || downloads.fileFor(it.id) != null }
+            if (playable.isEmpty()) {
+                _messages.tryEmit("Offline mode is on. Download songs to play them offline.")
+                return
+            }
+            if (playable.size != tracks.size) {
+                val start = playable.indexOfFirst { it.id == wanted?.id }.coerceAtLeast(0)
+                if (wanted != null && playable.none { it.id == wanted.id }) _messages.tryEmit("That song isn't downloaded, playing your downloads")
+                return play(playable, start, from, shuffle)
+            }
+        }
         if (tracks.isEmpty()) return
         tracks.forEach { known[it.id] = it }
         playContext = from
@@ -183,7 +204,7 @@ class PlayerController(
             val pending = pendingQueued(c)
             originalOrder = tracks
             val start = if (shuffle == true) tracks.indices.random() else startIndex.coerceIn(tracks.indices)
-            val ordered = if (shuffleOn) listOf(tracks[start]) + tracks.filterIndexed { i, _ -> i != start }.shuffled() else tracks
+            val ordered = if (shuffleOn) listOf(tracks[start]) + shuffleOrder(tracks.filterIndexed { i, _ -> i != start }) else tracks
             val startAt = if (shuffleOn) 0 else start
             val items = ordered.toMutableList().apply { addAll(startAt + 1, pending) }
             c.setMediaItems(items.map { mediaItemFor(it) }, startAt, 0L)
@@ -211,12 +232,61 @@ class PlayerController(
         updatePosition(it)
     }
 
+    /** Off, then shuffle, then Smart Shuffle (when it's turned on in settings), then off again. */
     fun toggleShuffle() {
-        setShuffle(!shuffleOn)
-        sync()
-        withController { c ->
-            if (shuffleOn) shuffleRest(c) else unshuffle(c)
+        when {
+            !shuffleOn -> {
+                setShuffle(true)
+                smartOn = false
+                withController { c -> shuffleRest(c) }
+            }
+            !smartOn && settings.current.smartShuffle -> {
+                smartOn = true
+                withController { c -> addSuggestions(c) }
+            }
+            else -> {
+                setShuffle(false)
+                val wasSmart = smartOn
+                smartOn = false
+                withController { c ->
+                    if (wasSmart) removeSuggestions(c)
+                    unshuffle(c)
+                }
+            }
         }
+        sync()
+    }
+
+    /** Smart Shuffle: one suggested song after every three of yours, picked from your taste. */
+    private fun addSuggestions(c: MediaController) {
+        val current = c.currentMediaItem?.toTrack() ?: return
+        scope.launch {
+            val lib = library.state.value
+            val genres = (listOfNotNull(current.genre?.takeIf { it.isNotBlank() }) + lib.tasteGenres()).distinct().take(2)
+            val queued = (0 until c.mediaItemCount).mapTo(HashSet()) { c.getMediaItemAt(it).mediaId }
+            val picks = genres.ifEmpty { listOf(null) }.flatMap { g ->
+                runCatching { api.trendingTracks(genre = g, time = "month", limit = 30) }.getOrDefault(emptyList())
+            }.filterNot { it.id in queued || it.id in lib.tasteExcluded }.distinctBy { it.id }.shuffled().take(15)
+            if (picks.isEmpty() || !smartOn) return@launch
+            picks.forEach { known[it.id] = it }
+            val base = c.currentMediaItemIndex + 1 + pendingQueued(c).size
+            var at = base + 3
+            for (t in picks) {
+                if (at > c.mediaItemCount) break
+                suggestedIds += t.id
+                c.addMediaItem(at, mediaItemFor(t))
+                at += 4
+            }
+            sync()
+        }
+    }
+
+    private fun removeSuggestions(c: MediaController) {
+        val cur = c.currentMediaItemIndex
+        (c.mediaItemCount - 1 downTo cur + 1).forEach { i ->
+            if (c.getMediaItemAt(i).mediaId in suggestedIds) c.removeMediaItem(i)
+        }
+        suggestedIds.clear()
     }
 
     /** Shuffles everything that isn't queued again, keeping the current song playing. */
@@ -244,7 +314,17 @@ class PlayerController(
         val all = allTracks(c)
         val pending = pendingQueued(c)
         val rest = all.filterIndexed { i, _ -> i != cur && i !in (cur + 1)..(cur + pending.size) }
-        rebuildAround(c, emptyList(), pending + rest.shuffled())
+        rebuildAround(c, emptyList(), pending + shuffleOrder(rest))
+    }
+
+    /**
+     * "Fewer repeats" pushes songs you heard recently towards the end, the rest is random.
+     * "Standard" is a plain random order.
+     */
+    private fun shuffleOrder(tracks: List<Track>): List<Track> {
+        if (settings.current.shuffleStyle == com.srakim.spitify.data.ShuffleStyle.STANDARD) return tracks.shuffled()
+        val recent = library.state.value.recentTracks.take(50).withIndex().associate { (i, t) -> t.id to (50 - i) / 50.0 }
+        return tracks.map { it to Math.random() + (recent[it.id] ?: 0.0) * 1.5 }.sortedBy { it.second }.map { it.first }
     }
 
     /** Back to the original order, carrying on from the song that's playing. */
@@ -418,6 +498,7 @@ class PlayerController(
         val current = c.currentMediaItem?.toTrack()
         // A queued song that's now playing has left the queue.
         if (current != null) queuedIds -= current.id
+        broadcast(current, c.isPlaying, c.duration)
         if (current != null && current.id != lastRecordedId && c.playWhenReady) {
             lastRecordedId = current.id
             if (!settings.current.privateSession) library.recordPlay(current)
@@ -436,7 +517,7 @@ class PlayerController(
             while (i != C.INDEX_UNSET && upNext.size < 100) {
                 val item = c.getMediaItemAt(i)
                 inQueueBlock = inQueueBlock && item.mediaId in queuedIds
-                upNext += QueueEntry(i, item.toTrack(), queued = inQueueBlock)
+                upNext += QueueEntry(i, item.toTrack(), queued = inQueueBlock, suggested = item.mediaId in suggestedIds)
                 i = timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
             }
         }
@@ -448,6 +529,7 @@ class PlayerController(
             positionMs = c.currentPosition.coerceAtLeast(0),
             durationMs = durationOf(c, current),
             shuffle = shuffleOn,
+            smartShuffle = shuffleOn && smartOn,
             repeatMode = c.repeatMode,
             upNext = upNext,
             context = playContext,
@@ -455,6 +537,28 @@ class PlayerController(
             sleepAtTrackEnd = sleepAtTrackEnd,
             onAir = if (current?.isRadio == true) onAirText(c, current) else null,
         )
+    }
+
+    /**
+     * "Device broadcast status": the standard intents music apps send so scrobblers, widgets
+     * and car head units can see what's playing.
+     */
+    private fun broadcast(track: Track?, playing: Boolean, durationMs: Long) {
+        if (!settings.current.broadcastStatus) return
+        val key = track?.id to playing
+        if (key == lastBroadcast) return
+        val changedTrack = lastBroadcast?.first != track?.id
+        lastBroadcast = key
+        val action = if (changedTrack) "com.android.music.metachanged" else "com.android.music.playstatechanged"
+        val intent = android.content.Intent(action)
+            .putExtra("id", track?.id?.hashCode()?.toLong() ?: -1L)
+            .putExtra("track", track?.title)
+            .putExtra("artist", track?.artist)
+            .putExtra("album", track?.album)
+            .putExtra("duration", if (durationMs > 0) durationMs else (track?.durationSec ?: 0) * 1000L)
+            .putExtra("playing", playing)
+            .putExtra("package", context.packageName)
+        runCatching { context.sendBroadcast(intent) }
     }
 
     /**

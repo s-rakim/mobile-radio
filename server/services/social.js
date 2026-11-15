@@ -366,7 +366,37 @@ function blend(me, raw) {
   };
 }
 
+// ---- Jams: the host's queue and playhead, so friends can join from anywhere or nearby. ----
+
+const jams = new Map(); // host -> { tracks, index, positionMs, at }, kept in memory only
+
+function hostJam(me, body) {
+  jams.set(me, {
+    tracks: (body?.tracks || []).slice(0, 100).map(slimTrack).filter(Boolean),
+    index: Math.max(0, Number(body?.index) || 0),
+    positionMs: Math.max(0, Number(body?.positionMs) || 0),
+    at: Date.now(),
+  });
+  return { ok: true };
+}
+
+function endJam(me) {
+  jams.delete(me);
+  return { ok: true };
+}
+
+function jamOf(raw) {
+  const host = requireUser(raw);
+  const jam = jams.get(host);
+  // A Jam the host hasn't updated in 20 minutes is over.
+  if (!jam || Date.now() - jam.at > 20 * 60_000) throw new SocialError(404, `${profile(host).displayName} isn't hosting a Jam right now`);
+  return { host: profile(host), ...jam };
+}
+
 module.exports = {
+  hostJam,
+  endJam,
+  jamOf,
   SocialError,
   profile,
   updateProfile,

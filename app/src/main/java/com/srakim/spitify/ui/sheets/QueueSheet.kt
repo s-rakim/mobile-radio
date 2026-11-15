@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -315,7 +316,13 @@ fun QueueSheet(onDismiss: () -> Unit) {
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    BarButton("Shuffle", Icons.Rounded.Shuffle, state.shuffle, Modifier.weight(1f), onClick = player::toggleShuffle)
+                    BarButton(
+                        if (state.smartShuffle) "Smart Shuffle" else "Shuffle",
+                        if (state.smartShuffle) Icons.Rounded.AutoAwesome else Icons.Rounded.Shuffle,
+                        state.shuffle,
+                        Modifier.weight(1f),
+                        onClick = player::toggleShuffle,
+                    )
                     BarButton(
                         "Repeat",
                         if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
@@ -382,7 +389,14 @@ private fun QueueRow(
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(entry.track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(entry.track.artist, style = MaterialTheme.typography.bodyMedium, color = SpitifyColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (entry.suggested) {
+                    // Smart Shuffle picks get a sparkle, like Spotify's.
+                    Icon(Icons.Rounded.AutoAwesome, contentDescription = "Suggested", tint = SpitifyColors.Accent, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(entry.track.artist, style = MaterialTheme.typography.bodyMedium, color = SpitifyColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         Box(handle.size(48.dp), contentAlignment = Alignment.Center) {
             Icon(MenuIcons.Drag, contentDescription = "Drag to reorder", tint = SpitifyColors.TextSecondary, modifier = Modifier.size(24.dp))

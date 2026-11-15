@@ -46,6 +46,7 @@ data class LibraryState(
     val recentSearches: List<String> = emptyList(),
     /** Songs the listener asked to keep out of their taste profile. */
     val tasteExcluded: List<String> = emptyList(),
+    val folders: List<PlaylistFolder> = emptyList(),
 )
 
 /**
@@ -79,17 +80,52 @@ class LibraryStore(context: Context) {
         return next.liked.any { it.id == track.id }
     }
 
-    fun createPlaylist(name: String): UserPlaylist {
+    fun createPlaylist(
+        name: String,
+        tracks: List<Track> = emptyList(),
+        mixed: Boolean = false,
+        description: String = "",
+        folderId: String? = null,
+    ): UserPlaylist {
         val now = System.currentTimeMillis()
         val playlist = UserPlaylist(
             id = UUID.randomUUID().toString(),
             name = name.trim().ifBlank { "My playlist #${_state.value.playlists.size + 1}" },
+            description = description,
+            tracks = tracks.distinctBy { it.id },
             createdAt = now,
             updatedAt = now,
+            folderId = folderId,
+            mixed = mixed,
         )
         edit { it.copy(playlists = listOf(playlist) + it.playlists) }
         return playlist
     }
+
+    fun setMixed(id: String, mixed: Boolean) = updatePlaylist(id) { it.copy(mixed = mixed) }
+
+    fun moveToFolder(playlistId: String, folderId: String?) = updatePlaylist(playlistId) { it.copy(folderId = folderId) }
+
+    fun createFolder(name: String): PlaylistFolder {
+        val folder = PlaylistFolder(UUID.randomUUID().toString(), name.trim().ifBlank { "New folder" }, System.currentTimeMillis())
+        edit { it.copy(folders = listOf(folder) + it.folders) }
+        return folder
+    }
+
+    fun renameFolder(id: String, name: String) = edit { s ->
+        s.copy(folders = s.folders.map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }) else it })
+    }
+
+    /** Deleting a folder keeps its playlists; they go back to the top level. */
+    fun deleteFolder(id: String) = edit { s ->
+        s.copy(
+            folders = s.folders.filterNot { it.id == id },
+            playlists = s.playlists.map { if (it.folderId == id) it.copy(folderId = null) else it },
+        )
+    }
+
+    /** Swaps a playlist's songs, e.g. after reordering for a smooth mix. */
+    fun setTracks(id: String, tracks: List<Track>) = updatePlaylist(id) { it.copy(tracks = tracks) }
 
     fun renamePlaylist(id: String, name: String) = updatePlaylist(id) { it.copy(name = name.trim().ifBlank { it.name }) }
 
@@ -187,6 +223,7 @@ class LibraryStore(context: Context) {
                 playlists = lib.playlists,
                 savedPlaylists = lib.savedPlaylists,
                 followedArtists = lib.followedArtists,
+                folders = lib.folders.ifEmpty { it.folders },
             )
         }
     }

@@ -105,6 +105,9 @@ app.post('/api/collab/:id/join', signedIn, socialRoute((req) => social.joinColla
 app.post('/api/collab/:id/leave', signedIn, socialRoute((req) => social.leaveCollab(req.user, req.params.id)));
 app.post('/api/collab/:id/tracks', signedIn, socialRoute((req) => social.addToCollab(req.user, req.params.id, req.body?.track)));
 app.delete('/api/collab/:id/tracks/:trackId', signedIn, socialRoute((req) => social.removeFromCollab(req.user, req.params.id, req.params.trackId)));
+app.put('/api/jam', signedIn, socialRoute((req) => social.hostJam(req.user, req.body)));
+app.delete('/api/jam', signedIn, socialRoute((req) => social.endJam(req.user)));
+app.get('/api/jam/:name', signedIn, socialRoute((req) => social.jamOf(req.params.name)));
 app.get('/api/blend/:name', signedIn, socialRoute((req) => social.blend(req.user, req.params.name)));
 
 for (const [name, [search, empty]] of Object.entries(catalogs)) {

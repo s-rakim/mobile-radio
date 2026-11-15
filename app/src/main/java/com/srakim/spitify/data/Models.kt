@@ -104,7 +104,15 @@ data class UserPlaylist(
     val tracks: List<Track> = emptyList(),
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    /** The folder it sits in, if any. */
+    val folderId: String? = null,
+    /** Mixed playlists fade songs into each other, like a DJ set. */
+    val mixed: Boolean = false,
 )
+
+/** A folder in Your Library that groups playlists. */
+@Serializable
+data class PlaylistFolder(val id: String, val name: String, val createdAt: Long = 0)
 
 /** Something the listener opened recently, used for the home shortcuts and library sort. */
 @Serializable

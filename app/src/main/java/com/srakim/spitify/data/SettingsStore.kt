@@ -17,6 +17,26 @@ enum class VolumeLevel(val label: String, val description: String) {
 }
 
 @Serializable
+enum class DataSaverMode(val label: String, val description: String?) {
+    ON("Always on", null),
+    AUTO("Automatic", "Adjusts based on Android's Data Saver setting or when you're on mobile data."),
+    OFF("Always off", null),
+}
+
+@Serializable
+enum class ShuffleStyle(val label: String, val description: String) {
+    FEWER_REPEATS("Fewer repeats", "Randomizes while remembering recent plays, making songs you just heard less likely to repeat soon."),
+    STANDARD("Standard", "Shuffles songs in a random order; every song has an equal shot, even if that means you hear some more often than others."),
+}
+
+@Serializable
+enum class Quality(val label: String, val description: String) {
+    AUTO("Automatic", "Best the connection allows"),
+    LOW("Low", "Smaller artwork, saves data"),
+    HIGH("Very high", "Full-size artwork and the best stream each source has"),
+}
+
+@Serializable
 data class AppSettings(
     val profileName: String = "",
     val crossfadeSeconds: Int = 0,
@@ -41,6 +61,55 @@ data class AppSettings(
     /** The Spitify web server at home, for YouTube and the open catalogues. */
     val webServerEnabled: Boolean = true,
     val webServerUrl: String = "",
+
+    // Playback
+    /** Trims silence between and inside songs, so one flows straight into the next. */
+    val gapless: Boolean = false,
+    /** Fades songs into each other on mixed playlists and genre mixes, even with crossfade off. */
+    val automix: Boolean = true,
+    val monoAudio: Boolean = false,
+    /** Sends the song that's playing to other apps (scrobblers, widgets) as a system broadcast. */
+    val broadcastStatus: Boolean = false,
+    /** Offers Smart Shuffle as a third shuffle mode, which slips in suggested songs. */
+    val smartShuffle: Boolean = true,
+    val shuffleStyle: ShuffleStyle = ShuffleStyle.FEWER_REPEATS,
+    /** Evens out loudness between songs with a compressor on the output. */
+    val volumeNormalization: Boolean = true,
+
+    // Data saving and offline
+    val dataSaverMode: DataSaverMode = DataSaverMode.OFF,
+    /** Nothing goes online; only downloads and songs on the phone play. */
+    val offlineMode: Boolean = false,
+    /** Turning this off removes downloads and hides download buttons. */
+    val offlineAccess: Boolean = true,
+
+    // Media quality
+    val wifiQuality: Quality = Quality.HIGH,
+    val cellularQuality: Quality = Quality.AUTO,
+
+    // Content and display
+    val allowExplicit: Boolean = true,
+    val showCanvasArt: Boolean = true,
+
+    // Privacy and social
+    /** Friends can see what you're playing. */
+    val shareActivity: Boolean = true,
+    /** New playlists show on your profile to friends. */
+    val publicPlaylists: Boolean = true,
+    val showRecentArtists: Boolean = true,
+
+    // Notifications
+    val notifyMessages: Boolean = true,
+    val notifyFollows: Boolean = true,
+    val notifyCollab: Boolean = true,
+    val notifyReleases: Boolean = true,
+
+    // Connect
+    /** While you host a Jam, phones with Spitify on the same Wi-Fi get an invite. */
+    val autoInviteNearby: Boolean = false,
+
+    /** Client id of Malcolm's Spotify developer app, for importing playlists. */
+    val spotifyClientId: String = "",
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

@@ -15,6 +15,11 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+        // Shared Spitify server for accounts, friends and messages. Everyone who wants to be
+        // friends in the app needs the same one. Set the SPITIFY_SERVER_URL Actions variable.
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"${(System.getenv("SPITIFY_SERVER_URL") ?: "").replace("\"", "")}\"")
+        // Client id of a Spotify developer app, for importing playlists. Not a secret.
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${(System.getenv("SPOTIFY_CLIENT_ID") ?: "").replace("\"", "")}\"")
     }
 
     // The release key never lives in the repo. CI writes it from secrets (or makes a

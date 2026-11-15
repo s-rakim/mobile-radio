@@ -7,6 +7,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Finding Jams on the same Wi-Fi. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -43,6 +45,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="spitify" android:host="jam" />
+            </intent-filter>
+            <!-- Collaborative playlist invites (spitify://collab/<id>), friend links
+                 (spitify://user/<name>) and the Spotify sign-in coming back (spitify://spotify-auth). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="spitify" android:host="collab" />
+                <data android:scheme="spitify" android:host="user" />
+                <data android:scheme="spitify" android:host="spotify-auth" />
             </intent-filter>
         </activity>
 

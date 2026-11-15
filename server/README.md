@@ -91,3 +91,24 @@ Optional. From a home IP YouTube usually doesn't ask. If searches start failing 
 | `YTDLP_POT_PROVIDER_URL` | bgutil PO token server. Set by docker-compose. |
 | `YT_PROXY` | Routes yt-dlp through a proxy. Empty means direct. |
 | `PYTHON` | Python command. Defaults to `python` on Windows, `python3` elsewhere. |
+
+## Friends, messages and shared playlists
+
+The same accounts the app uses for library sync also power the social features. They only ever connect people who have an account on this server; nothing goes to any outside service.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/friends` | People you follow and who follow you, with what they're playing |
+| `POST` / `DELETE /api/friends/:name` | Follow / unfollow a Spitify user |
+| `GET /api/users/search?q=` | Find Spitify users by name |
+| `PUT /api/social/profile` | Display name, and whether friends can see your listening |
+| `PUT /api/activity` | The app checks in with what's playing |
+| `PUT /api/stats`, `GET /api/stats/friends?week=` | Weekly minutes, top songs and artists, compared with friends |
+| `GET /api/messages`, `GET` / `POST /api/messages/:name` | Conversations; share songs, playlists or text |
+| `POST /api/messages/:name/:id/react` | React to a message |
+| `/api/collab...` | Collaborative playlists: create, join by link, add and remove songs, leave |
+| `GET /api/blend/:name` | A Blend of your library and a friend's, with a taste match score |
+
+Everything is kept in `data/social.json` next to the accounts. **That folder has to survive restarts**, so host the server somewhere with a persistent disk (the Docker volume on your own machine is fine). Render's free tier wipes its disk on every restart and would lose accounts and messages.
+
+Everyone who wants to be friends in the app has to use the same server address. Set it once for every build with the `SPITIFY_SERVER_URL` Actions variable (Settings → Secrets and variables → Actions → Variables), or each person types it under Settings → Account.

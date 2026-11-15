@@ -69,7 +69,11 @@ class PlaybackService : MediaSessionService() {
             .readTimeout(90, TimeUnit.SECONDS)
             .build()
         val network = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(playerHttp))
-        val dataSource = FallbackDataSource.Factory(network)
+        // SoundCloud stream addresses are signed and short-lived, so they're fetched right before playback.
+        val resolving = androidx.media3.datasource.ResolvingDataSource.Factory(network) { spec ->
+            if (spec.uri.scheme == com.srakim.spitify.data.SoundCloudApi.SCHEME) spec.withUri(app.soundCloud.resolveStreamBlocking(spec.uri)) else spec
+        }
+        val dataSource = FallbackDataSource.Factory(resolving)
         // Only the renderers a music app needs: audio (through our own sink, so mono audio can be
         // mixed in) and metadata, which carries what a radio station says is on air.
         val mixer = ChannelMixingAudioProcessor()

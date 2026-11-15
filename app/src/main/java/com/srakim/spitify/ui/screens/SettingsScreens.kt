@@ -316,6 +316,8 @@ private fun SettingsSectionPage(page: SettingsSection) {
     var editingServer by remember { mutableStateOf(false) }
     var editingWeb by remember { mutableStateOf(false) }
     var editingSpotifyId by remember { mutableStateOf(false) }
+    var editingJamendo by remember { mutableStateOf(false) }
+    var editingSoundCloud by remember { mutableStateOf(false) }
     val updater = app.updater
     val updateStatus by updater.status.collectAsStateWithLifecycle()
     val catalog = LocalCatalog.current
@@ -618,6 +620,38 @@ private fun SettingsSectionPage(page: SettingsSection) {
                 group("Music sources")
                 item { SettingRow("Audius", "Always on. The main catalogue.") }
                 item {
+                    ToggleRow("Internet Archive", "Live recordings, old radio and free albums, some in lossless FLAC.", settings.archiveEnabled) { v -> set { it.copy(archiveEnabled = v) } }
+                }
+                item {
+                    ToggleRow("ccMixter", "Creative Commons remixes and instrumentals.", settings.ccMixterEnabled) { v -> set { it.copy(ccMixterEnabled = v) } }
+                }
+                item {
+                    SettingRow(
+                        "Jamendo",
+                        if (settings.jamendoClientId.isBlank()) "Independent artists under Creative Commons. Add a free client id to turn it on."
+                        else if (settings.jamendoEnabled) "On" else "Off",
+                        onClick = { editingJamendo = true },
+                    ) {
+                        if (settings.jamendoClientId.isNotBlank()) {
+                            Switch(
+                                checked = settings.jamendoEnabled,
+                                onCheckedChange = { v -> set { it.copy(jamendoEnabled = v) } },
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = SpitifyColors.Accent, uncheckedThumbColor = SpitifyColors.TextSecondary, uncheckedTrackColor = SpitifyColors.Highlight, uncheckedBorderColor = SpitifyColors.Highlight),
+                            )
+                        } else {
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
+                        }
+                    }
+                }
+                item {
+                    SettingRow(
+                        "SoundCloud",
+                        if (settings.soundCloudClientId.isBlank() || settings.soundCloudClientSecret.isBlank()) "Through SoundCloud's own API. Add your app's client id and secret to turn it on."
+                        else "On, playable tracks only",
+                        onClick = { editingSoundCloud = true },
+                    )
+                }
+                item {
                     SettingRow(
                         "Your server",
                         when {
@@ -792,6 +826,64 @@ private fun SettingsSectionPage(page: SettingsSection) {
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingJamendo) {
+        var id by remember { mutableStateOf(settings.jamendoClientId) }
+        AlertDialog(
+            onDismissRequest = { editingJamendo = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Jamendo") },
+            text = {
+                Column {
+                    Text("Make a free app at devportal.jamendo.com and paste its Client ID here.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(id, { id = it.trim() }, "Client ID")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(jamendoClientId = id, jamendoEnabled = id.isNotBlank()) }
+                    editingJamendo = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingJamendo = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingSoundCloud) {
+        var id by remember { mutableStateOf(settings.soundCloudClientId) }
+        var secret by remember { mutableStateOf(settings.soundCloudClientSecret) }
+        AlertDialog(
+            onDismissRequest = { editingSoundCloud = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("SoundCloud") },
+            text = {
+                Column {
+                    Text(
+                        "From an app registered at soundcloud.com/you/apps. Only tracks SoundCloud marks as playable show up, and they can't be downloaded. Without these, SoundCloud still comes through your Spitify server.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(id, { id = it.trim() }, "Client ID")
+                    Spacer(Modifier.height(8.dp))
+                    DialogField(secret, { secret = it.trim() }, "Client secret", secret = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(soundCloudClientId = id, soundCloudClientSecret = secret) }
+                    editingSoundCloud = false
+                    if (id.isNotBlank() && secret.isNotBlank()) scope.launch {
+                        app.soundCloud.verify().fold(
+                            { actions.toast("SoundCloud is connected") },
+                            { actions.toast("SoundCloud didn't accept those: ${it.message}") },
+                        )
+                    }
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingSoundCloud = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 

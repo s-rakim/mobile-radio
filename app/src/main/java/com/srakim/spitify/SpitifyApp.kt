@@ -49,7 +49,11 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val server: SubsonicApi by lazy { SubsonicApi(httpClient, settings) }
     val localMusic: LocalMusic by lazy { LocalMusic(this) }
     val webServer: SpitifyServerApi by lazy { SpitifyServerApi(httpClient, settings) }
-    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings) }
+    val archive: com.srakim.spitify.data.ArchiveApi by lazy { com.srakim.spitify.data.ArchiveApi(httpClient, settings) }
+    val ccMixter: com.srakim.spitify.data.CcMixterApi by lazy { com.srakim.spitify.data.CcMixterApi(httpClient, settings) }
+    val jamendo: com.srakim.spitify.data.JamendoApi by lazy { com.srakim.spitify.data.JamendoApi(httpClient, settings) }
+    val soundCloud: com.srakim.spitify.data.SoundCloudApi by lazy { com.srakim.spitify.data.SoundCloudApi(httpClient, settings) }
+    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings, archive, ccMixter, jamendo, soundCloud) }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }

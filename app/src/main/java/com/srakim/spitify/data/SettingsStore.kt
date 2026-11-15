@@ -52,6 +52,15 @@ data class AppSettings(
     val showLyrics: Boolean = true,
     /** Shuffle stays on between songs and app restarts, like Spotify. */
     val shuffle: Boolean = false,
+    /** Open catalogues the phone searches by itself, no server needed. */
+    val archiveEnabled: Boolean = true,
+    val ccMixterEnabled: Boolean = true,
+    val jamendoEnabled: Boolean = true,
+    /** Jamendo stays hidden until this is filled in (free from devportal.jamendo.com). */
+    val jamendoClientId: String = "",
+    /** Both come from an app registered at soundcloud.com/you/apps. SoundCloud stays off without them. */
+    val soundCloudClientId: String = "",
+    val soundCloudClientSecret: String = "",
     /** A Subsonic-compatible server such as Navidrome. */
     val subsonicEnabled: Boolean = true,
     val subsonicUrl: String = "",

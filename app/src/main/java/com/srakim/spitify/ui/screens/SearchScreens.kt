@@ -106,7 +106,7 @@ fun SearchScreen() {
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.statusBarsPadding().padding(top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProfileBadge(onClick = actions::openSettings)
+                ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                 Spacer(Modifier.width(12.dp))
                 Text("Search", style = MaterialTheme.typography.headlineSmall)
             }
@@ -211,6 +211,20 @@ fun SearchInputScreen(initialQuery: String = "") {
     val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
     val soundcloud = rememberLoad("search-soundcloud", debounced) { catalog.searchSoundCloud(debounced) }
     val soundcloudTracks = (soundcloud.state as? Load.Ready)?.data.orEmpty()
+    // The open catalogues come straight from the phone, one call each, so whichever answers
+    // first shows first and a slow one never holds the rest up.
+    val archiveLoad = rememberLoad("search-archive", debounced) { catalog.searchArchive(debounced) }
+    val ccLoad = rememberLoad("search-ccmixter", debounced) { catalog.searchCcMixter(debounced) }
+    val jamendoLoad = rememberLoad("search-jamendo", debounced) { catalog.searchJamendo(debounced) }
+    val scDirectLoad = rememberLoad("search-sc-direct", debounced) { catalog.searchSoundCloudDirect(debounced) }
+    val extrasLoad = rememberLoad("search-open-extras", debounced) { catalog.searchOpenExtras(debounced) }
+    val directTracks = interleave(
+        (jamendoLoad.state as? Load.Ready)?.data.orEmpty(),
+        (ccLoad.state as? Load.Ready)?.data.orEmpty(),
+        (archiveLoad.state as? Load.Ready)?.data.orEmpty(),
+    )
+    val scDirect = (scDirectLoad.state as? Load.Ready)?.data.orEmpty()
+    val extras = (extrasLoad.state as? Load.Ready)?.data
     val radio = rememberLoad("search-radio", debounced) { catalog.searchRadio(debounced) }
     val stations = (radio.state as? Load.Ready)?.data.orEmpty()
     val radioBusy = radio.state is Load.Loading
@@ -283,7 +297,14 @@ fun SearchInputScreen(initialQuery: String = "") {
             is Load.Ready -> {
                 // Top songs from each big source first, so one source can't push the others off the top.
                 val data = state.data.let {
-                    it.copy(tracks = interleave(youtubeTracks, soundcloudTracks, it.tracks) + openTracks)
+                    val seen = HashSet<String>()
+                    val merged = (interleave(youtubeTracks, soundcloudTracks, scDirect, it.tracks) + directTracks + openTracks)
+                        .filter { t -> seen.add(t.title.lowercase().trim() + "|" + t.artist.lowercase().trim()) }
+                    it.copy(
+                        tracks = merged,
+                        artists = it.artists + extras?.artists.orEmpty(),
+                        playlists = it.playlists + extras?.playlists.orEmpty(),
+                    )
                 }
                 val radioContext = PlayContext("radio-search:$debounced", "\"$debounced\" stations", "RADIO")
                 if (filter == ResultFilter.RADIO) {

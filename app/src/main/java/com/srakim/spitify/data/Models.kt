@@ -37,6 +37,10 @@ data class Track(
             id.startsWith(SubsonicApi.ID_PREFIX) -> "Your server"
             id.startsWith(RadioBrowserApi.ID_PREFIX) -> "Live radio"
             id.startsWith(SpitifyServerApi.ID_PREFIX) -> origin ?: "Spitify server"
+            id.startsWith(JamendoApi.ID_PREFIX) -> "Jamendo"
+            id.startsWith(ArchiveApi.ID_PREFIX) -> "Internet Archive"
+            id.startsWith(CcMixterApi.ID_PREFIX) -> "ccMixter"
+            id.startsWith(SoundCloudApi.ID_PREFIX) -> "SoundCloud"
             else -> "Audius"
         }
 
@@ -64,7 +68,8 @@ data class Track(
     val isAudius: Boolean get() = source == "Audius"
 
     /** Songs already on the phone don't need saving. */
-    val canDownload: Boolean get() = !isLocal && !isRadio && !hls
+    /** SoundCloud's terms don't allow saving its streams. */
+    val canDownload: Boolean get() = !isLocal && !isRadio && !hls && !id.startsWith(SoundCloudApi.ID_PREFIX)
 }
 
 @Serializable

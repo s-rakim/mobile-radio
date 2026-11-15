@@ -398,6 +398,8 @@ fun SearchInputScreen(initialQuery: String = "") {
                         ResultFilter.ARTISTS -> items(data.artists, key = { it.id }) { a ->
                             ArtistRow(a) { saveQuery(); actions.openArtist(a.id) }
                         }
+                        // Stations get their own list above, they never reach this one.
+                        ResultFilter.RADIO -> Unit
                         ResultFilter.PLAYLISTS -> items(data.playlists, key = { it.id }) { p ->
                             Row(
                                 Modifier

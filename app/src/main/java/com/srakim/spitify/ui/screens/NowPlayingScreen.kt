@@ -536,7 +536,6 @@ private fun ToggleIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, on
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 /** In place of the seek bar for a live station: a LIVE badge and whatever it says is on air. */
 @Composable
 private fun LiveBar(onAir: String?) {
@@ -563,6 +562,7 @@ private fun LiveBar(onAir: String?) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }

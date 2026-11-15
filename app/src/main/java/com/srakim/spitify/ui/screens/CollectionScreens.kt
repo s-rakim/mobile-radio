@@ -73,6 +73,7 @@ import com.srakim.spitify.ui.components.rememberArtworkColors
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.sheets.CreatePlaylistDialog
 import com.srakim.spitify.ui.sheets.SheetOption
+import com.srakim.spitify.ui.sheets.LIKED_PLAYLIST
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -211,7 +212,7 @@ fun LikedSongsScreen() {
         collectionTracks(
             tracks, ctx, playback.current?.id, playback.isPlaying, likedIds,
             onPlay = { player.play(tracks, it, ctx) },
-            onMore = { actions.showTrackMenu(it, null) },
+            onMore = { actions.showTrackMenu(it, LIKED_PLAYLIST) },
         )
     }
 }

@@ -106,6 +106,8 @@ import com.srakim.spitify.ui.sheets.TrackMenuSheet
 import com.srakim.spitify.ui.sheets.QueueSheet
 import com.srakim.spitify.ui.sheets.CreditsSheet
 import com.srakim.spitify.ui.sheets.JamSheet
+import com.srakim.spitify.ui.sheets.SleepTimerSheet
+import com.srakim.spitify.ui.sheets.SongDnaSheet
 import com.srakim.spitify.data.Jam
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.ui.theme.SpitifyColors
@@ -130,6 +132,8 @@ fun SpitifyRoot(app: SpitifyApp) {
     var queueOpen by remember { mutableStateOf(false) }
     var creditsFor by remember { mutableStateOf<Track?>(null) }
     var jamFor by remember { mutableStateOf<Track?>(null) }
+    var sleepTimerOpen by remember { mutableStateOf(false) }
+    var dnaFor by remember { mutableStateOf<Track?>(null) }
 
     val actions = remember(nav) {
         AppActions(
@@ -146,6 +150,8 @@ fun SpitifyRoot(app: SpitifyApp) {
             showQueue = { queueOpen = true },
             showCredits = { creditsFor = it },
             showJam = { jamFor = it },
+            showSleepTimer = { sleepTimerOpen = true },
+            showSongDna = { dnaFor = it },
             openPlayer = { playerOpen = true },
             closePlayer = { playerOpen = false },
         )
@@ -281,6 +287,10 @@ fun SpitifyRoot(app: SpitifyApp) {
         jamFor?.let { track ->
             JamSheet(track = track, onDismiss = { jamFor = null })
         }
+        dnaFor?.let { track ->
+            SongDnaSheet(track = track, onDismiss = { dnaFor = null })
+        }
+        if (sleepTimerOpen) SleepTimerSheet(onDismiss = { sleepTimerOpen = false })
         addToPlaylist?.let { track ->
             AddToPlaylistSheet(track = track, onDismiss = { addToPlaylist = null })
         }

@@ -30,6 +30,8 @@ data class AppSettings(
     val dataSaver: Boolean = false,
     val downloadOnCellular: Boolean = false,
     val showLyrics: Boolean = true,
+    /** Shuffle stays on between songs and app restarts, like Spotify. */
+    val shuffle: Boolean = false,
     /** A Subsonic-compatible server such as Navidrome. */
     val subsonicEnabled: Boolean = true,
     val subsonicUrl: String = "",

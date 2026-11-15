@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,18 +44,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -109,12 +107,14 @@ import com.srakim.spitify.ui.components.rememberArtworkColors
 import com.srakim.spitify.ui.components.rememberPop
 import com.srakim.spitify.ui.components.rememberSmoothProgress
 import com.srakim.spitify.ui.components.springClick
-import com.srakim.spitify.ui.sheets.SheetOption
+import com.srakim.spitify.ui.components.LyricsShare
+import com.srakim.spitify.ui.components.MenuIcons
+import com.srakim.spitify.ui.sheets.LIKED_PLAYLIST
+import com.srakim.spitify.ui.sheets.OutputDeviceButton
 import com.srakim.spitify.ui.sheets.TrackMenuHeader
 import com.srakim.spitify.ui.sheets.TrackMenuOptions
 import com.srakim.spitify.ui.sheets.SpitifySheet
 import com.srakim.spitify.ui.theme.SpitifyColors
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -174,6 +174,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
     var menuOpen by remember { mutableStateOf(false) }
     var lyricsOpen by remember { mutableStateOf(false) }
+    var lyricsSharing by remember { mutableStateOf(false) }
     var lyrics by remember(track.id) { mutableStateOf<Lyrics?>(null) }
     LaunchedEffect(track.id, settings.showLyrics) {
         lyrics = if (settings.showLyrics && !track.isRadio) lyricsApi.find(track) else null
@@ -214,8 +215,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         val ctx = state.context
                         Text(
-                            if (ctx != null) "PLAYING FROM ${ctx.label}" else "NOW PLAYING",
-                            style = MaterialTheme.typography.labelSmall,
+                            if (ctx != null) "Playing from ${contextKind(ctx.label)}" else "Now playing",
+                            style = MaterialTheme.typography.labelMedium,
                             color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
                         )
                         if (ctx != null) {
@@ -340,6 +341,31 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                     }
                 }
             }
+            // The line being sung right now, above the title, like Spotify does with synced lyrics.
+            val liveLine: @Composable () -> Unit = {
+                val lyr = lyrics
+                if (lyr != null && lyr.synced) {
+                    val line = lyr.lines.getOrNull(currentLine(lyr, state.positionMs))?.text?.takeIf { it.isNotBlank() }
+                    AnimatedContent(
+                        targetState = line,
+                        transitionSpec = {
+                            (slideInVertically(Motion.settle()) { it / 2 } + fadeIn(tween(Motion.MEDIUM))) togetherWith
+                                (slideOutVertically(tween(Motion.FAST)) { -it / 2 } + fadeOut(tween(Motion.FAST)))
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { lyricsOpen = true },
+                        contentAlignment = Alignment.CenterStart,
+                        label = "liveLine",
+                    ) { text ->
+                        Text(
+                            text.orEmpty(),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
             val controls: @Composable () -> Unit = {
                 Column {
                     Spacer(Modifier.height(12.dp))
@@ -386,17 +412,24 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                     }
 
                     Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (state.sleepTimerEndsAt != null) {
-                            Icon(Icons.Rounded.Bedtime, contentDescription = "Sleep timer on", tint = SpitifyColors.Accent, modifier = Modifier.size(20.dp))
+                        OutputDeviceButton(compact = true)
+                        if (state.sleepTimerEndsAt != null || state.sleepAtTrackEnd) {
+                            Spacer(Modifier.width(10.dp))
+                            Icon(
+                                Icons.Rounded.Bedtime,
+                                contentDescription = "Sleep timer on",
+                                tint = SpitifyColors.Accent,
+                                modifier = Modifier.size(20.dp).clickable(onClick = actions.showSleepTimer),
+                            )
                         }
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = {
                             shareText(context, "${track.title} by ${track.artist}${track.link?.let { "\n$it" }.orEmpty()}")
                         }) {
-                            Icon(Icons.Rounded.Share, contentDescription = "Share", modifier = Modifier.size(22.dp))
+                            Icon(MenuIcons.Share, contentDescription = "Share", modifier = Modifier.size(24.dp))
                         }
                         IconButton(onClick = actions.showQueue) {
-                            Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Queue", modifier = Modifier.size(24.dp))
+                            Icon(MenuIcons.Queue, contentDescription = "Queue", modifier = Modifier.size(24.dp))
                         }
                     }
                 }
@@ -411,6 +444,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                             cover(Modifier.size(coverSide))
                             Spacer(Modifier.width(40.dp))
                             Column(Modifier.weight(1f).widthIn(max = 560.dp)) {
+                                liveLine()
                                 titleRow()
                                 controls()
                             }
@@ -423,6 +457,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         Spacer(Modifier.weight(1f))
                         cover(Modifier.fillMaxWidth().aspectRatio(1f))
                         Spacer(Modifier.weight(1f))
+                        liveLine()
                         titleRow()
                         controls()
                     }
@@ -430,7 +465,19 @@ fun NowPlayingScreen(onClose: () -> Unit) {
 
                 Column(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
                     lyrics?.let { lyr ->
-                        LyricsCard(lyr, state.positionMs, lerp(art.secondary, color, 0.5f), onExpand = { lyricsOpen = true })
+                        LyricsCard(
+                            lyr,
+                            state.positionMs,
+                            lerp(art.secondary, color, 0.5f),
+                            onExpand = {
+                                lyricsSharing = false
+                                lyricsOpen = true
+                            },
+                            onShare = {
+                                lyricsSharing = true
+                                lyricsOpen = true
+                            },
+                        )
                     }
 
                     if (track.hasArtistLink) {
@@ -464,7 +511,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     }
 
     if (menuOpen) PlayerMenu(onDismiss = { menuOpen = false })
-    if (lyricsOpen) lyrics?.let { FullLyrics(it, color, onDismiss = { lyricsOpen = false }) }
+    if (lyricsOpen) lyrics?.let { FullLyrics(it, lerp(art.secondary, color, 0.5f), startPicking = lyricsSharing, onDismiss = { lyricsOpen = false }) }
 }
 
 @Composable
@@ -574,7 +621,7 @@ private fun currentLine(lyrics: Lyrics, positionMs: Long): Int {
 }
 
 @Composable
-private fun LyricsCard(lyrics: Lyrics, positionMs: Long, color: Color, onExpand: () -> Unit) {
+private fun LyricsCard(lyrics: Lyrics, positionMs: Long, color: Color, onExpand: () -> Unit, onShare: () -> Unit) {
     val current = currentLine(lyrics, positionMs)
     val start = if (current < 0) 0 else (current - 1).coerceAtLeast(0)
     val window = lyrics.lines.drop(start).filter { it.text.isNotBlank() }.take(6)
@@ -587,7 +634,12 @@ private fun LyricsCard(lyrics: Lyrics, positionMs: Long, color: Color, onExpand:
             .clickable(onClick = onExpand)
             .padding(16.dp),
     ) {
-        Text("Lyrics", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Lyrics", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            RoundIcon(MenuIcons.Share, "Share lyrics", onShare)
+            Spacer(Modifier.width(10.dp))
+            RoundIcon(MenuIcons.Expand, "Show lyrics full screen", onExpand)
+        }
         Spacer(Modifier.height(12.dp))
         window.forEach { line ->
             val active = lyrics.synced && lyrics.lines.indexOf(line) == current
@@ -604,13 +656,36 @@ private fun LyricsCard(lyrics: Lyrics, positionMs: Long, color: Color, onExpand:
 }
 
 @Composable
-private fun FullLyrics(lyrics: Lyrics, color: Color, onDismiss: () -> Unit) {
+private fun RoundIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .springClick(pressed = 0.85f, onClick = onClick)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.28f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+}
+
+/**
+ * Full-screen lyrics. Synced lines light up as they're sung and tapping one jumps there.
+ * Share switches to picking lines (up to five, like Spotify) and sends them as a lyric card.
+ */
+@Composable
+private fun FullLyrics(lyrics: Lyrics, color: Color, startPicking: Boolean, onDismiss: () -> Unit) {
     val player = LocalPlayer.current
+    val context = LocalContext.current
+    val actions = LocalActions.current
+    val scope = rememberCoroutineScope()
     val state by player.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val current = currentLine(lyrics, state.positionMs)
-    LaunchedEffect(current) {
-        if (current > 2) listState.animateScrollToItem((current - 2).coerceAtLeast(0))
+    var picking by remember { mutableStateOf(startPicking) }
+    val picked = remember { androidx.compose.runtime.mutableStateListOf<Int>() }
+    LaunchedEffect(current, picking) {
+        if (!picking && current > 2) listState.animateScrollToItem((current - 2).coerceAtLeast(0))
     }
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
@@ -618,36 +693,82 @@ private fun FullLyrics(lyrics: Lyrics, color: Color, onDismiss: () -> Unit) {
     ) {
         Column(Modifier.fillMaxSize().background(color).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = "Close lyrics") }
-                Column(Modifier.weight(1f)) {
-                    Text(state.current?.title.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    Text(state.current?.artist.orEmpty(), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                IconButton(onClick = { if (picking && !startPicking) picking = false else onDismiss() }) {
+                    Icon(if (picking) Icons.Rounded.Close else Icons.Rounded.KeyboardArrowDown, contentDescription = "Close lyrics")
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (picking) "Pick lines to share" else state.current?.title.orEmpty(),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (picking) "${picked.size} of 5 selected" else state.current?.artist.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.75f),
+                        maxLines = 1,
+                    )
+                }
+                IconButton(onClick = {
+                    picking = !picking
+                    picked.clear()
+                }) {
+                    Icon(MenuIcons.Share, contentDescription = "Share lyrics", tint = if (picking) Color.White else Color.White.copy(alpha = 0.85f))
                 }
             }
             LazyColumn(state = listState, modifier = Modifier.weight(1f).padding(horizontal = 24.dp)) {
                 itemsIndexed(lyrics.lines) { i, line ->
+                    val chosen = i in picked
+                    val lit = when {
+                        picking -> chosen
+                        else -> !lyrics.synced || i <= current
+                    }
+                    val tint by animateColorAsState(if (lit) Color.White else Color.Black.copy(alpha = 0.5f), tween(Motion.MEDIUM), label = "lyricTint")
                     Text(
                         line.text.ifBlank { "♪" },
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = if (!lyrics.synced || i <= current) Color.White else Color.Black.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = tint,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = line.timeMs != null) { line.timeMs?.let(player::seekTo) }
-                            .padding(vertical = 8.dp),
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (picking && chosen) Color.Black.copy(alpha = 0.18f) else Color.Transparent)
+                            .clickable(enabled = picking || line.timeMs != null) {
+                                when {
+                                    picking && line.text.isBlank() -> Unit
+                                    picking && chosen -> picked.remove(i)
+                                    picking && picked.size >= 5 -> actions.toast("You can share up to 5 lines")
+                                    picking -> picked.add(i)
+                                    else -> line.timeMs?.let(player::seekTo)
+                                }
+                            }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
                     )
                 }
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.Center) {
-                Box(
-                    Modifier.size(60.dp).clip(CircleShape).background(Color.White).clickable(onClick = player::togglePlayPause),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(32.dp),
-                    )
+                if (picking) {
+                    val ready = picked.isNotEmpty()
+                    Box(
+                        Modifier
+                            .clip(CircleShape)
+                            .background(if (ready) Color.White else Color.White.copy(alpha = 0.4f))
+                            .clickable(enabled = ready) {
+                                val track = state.current ?: return@clickable
+                                val lines = picked.sorted().map { lyrics.lines[it].text }
+                                scope.launch { LyricsShare.share(context, track, lines, color) }
+                            }
+                            .padding(horizontal = 36.dp, vertical = 14.dp),
+                    ) {
+                        Text("Share", style = MaterialTheme.typography.labelLarge, color = Color.Black)
+                    }
+                } else {
+                    Box(
+                        Modifier.size(60.dp).springClick(pressed = 0.88f, onClick = player::togglePlayPause).clip(CircleShape).background(Color.White),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PlayPauseIcon(state.isPlaying, tint = Color.Black, modifier = Modifier.size(32.dp))
+                    }
                 }
             }
         }
@@ -657,45 +778,23 @@ private fun FullLyrics(lyrics: Lyrics, color: Color, onDismiss: () -> Unit) {
 @Composable
 private fun PlayerMenu(onDismiss: () -> Unit) {
     val player = LocalPlayer.current
-    val actions = LocalActions.current
     val state by player.state.collectAsStateWithLifecycle()
     val track = state.current ?: return
-    var sleepPicker by remember { mutableStateOf(false) }
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000)
-            now = System.currentTimeMillis()
-        }
+    // Spotify offers "Remove from this playlist" while you're playing from one of your own.
+    val ctxId = state.context?.id
+    val playlistId = when {
+        ctxId == "liked" -> LIKED_PLAYLIST
+        ctxId?.startsWith("mine:") == true -> ctxId.removePrefix("mine:")
+        else -> null
     }
-
     SpitifySheet(onDismiss, scrollable = true) {
-        if (!sleepPicker) {
-            TrackMenuHeader(track)
-            TrackMenuOptions(track, playlistId = null, onDismiss = onDismiss)
-            val ends = state.sleepTimerEndsAt
-            SheetOption(
-                Icons.Rounded.Bedtime,
-                if (ends != null) "Sleep timer: ${formatDuration(((ends - now) / 1000).coerceAtLeast(0))} left" else "Sleep timer",
-                tint = if (ends != null) SpitifyColors.Accent else SpitifyColors.TextSecondary,
-                onClick = { sleepPicker = true },
-            )
-        } else {
-            Text("Sleep timer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
-            listOf(5, 10, 15, 30, 45, 60).forEach { minutes ->
-                SheetOption(Icons.Rounded.Bedtime, "$minutes minutes", onClick = {
-                    player.setSleepTimer(minutes)
-                    actions.toast("Sleep timer set for $minutes minutes")
-                    onDismiss()
-                })
-            }
-            if (state.sleepTimerEndsAt != null) {
-                SheetOption(Icons.Rounded.Close, "Turn off timer", onClick = {
-                    player.setSleepTimer(null)
-                    actions.toast("Sleep timer off")
-                    onDismiss()
-                })
-            }
-        }
+        TrackMenuHeader(track)
+        TrackMenuOptions(track, playlistId = playlistId, onDismiss = onDismiss)
     }
+}
+
+/** "Playing from Playlist", "Playing from Album" and so on, in Spotify's sentence case. */
+private fun contextKind(label: String): String = when (label.uppercase()) {
+    "LIKED SONGS" -> "Playlist"
+    else -> label.lowercase().replaceFirstChar { it.uppercase() }
 }

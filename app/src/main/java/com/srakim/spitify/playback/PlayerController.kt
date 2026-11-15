@@ -38,7 +38,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class QueueEntry(val index: Int, val track: Track)
+/** One song after the current one. [queued] is true for songs added with Add to Queue or Play next. */
+data class QueueEntry(val index: Int, val track: Track, val queued: Boolean = false)
 
 data class PlaybackState(
     val current: Track? = null,
@@ -51,9 +52,13 @@ data class PlaybackState(
     val upNext: List<QueueEntry> = emptyList(),
     val context: PlayContext? = null,
     val sleepTimerEndsAt: Long? = null,
+    /** Sleep timer set to "End of track". */
+    val sleepAtTrackEnd: Boolean = false,
     /** What a radio station says it's playing right now, when it says. */
     val onAir: String? = null,
 ) {
+    val queuedCount: Int get() = upNext.count { it.queued }
+
     val progress: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
     fun isPlayingFrom(contextId: String) = context?.id == contextId
@@ -82,6 +87,20 @@ class PlayerController(
     private var sleepJob: Job? = null
     private var sleepEndsAt: Long? = null
     private var autoplayFetchedFor: String? = null
+    private var sleepAtTrackEnd = false
+
+    /**
+     * Shuffle is done by actually reordering the queue rather than with the player's shuffle
+     * mode. That way the order you see in the queue is the order things play in, songs can be
+     * dragged around while shuffled, and Reshuffle is just another reorder.
+     */
+    private var shuffleOn = settings.current.shuffle
+
+    /** The order the songs came in, so turning shuffle off can put them back. */
+    private var originalOrder: List<Track> = emptyList()
+
+    /** Songs added with Add to Queue or Play next that haven't played yet. They sit right after the current song. */
+    private val queuedIds = LinkedHashSet<String>()
 
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -91,6 +110,28 @@ class PlayerController(
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = sync()
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val finished = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            if (sleepAtTrackEnd && finished) {
+                sleepAtTrackEnd = false
+                controller?.run {
+                    pause()
+                    seekToDefaultPosition()
+                }
+                _messages.tryEmit("Sleep timer: paused at the end of the song")
+                sync()
+            }
+        }
+
+        // The notification and lock screen still flip the player's own shuffle mode. Turn that
+        // back off and shuffle the queue our way instead.
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            val c = controller ?: return
+            if (!shuffleModeEnabled) return
+            c.shuffleModeEnabled = false
+            if (!shuffleOn) toggleShuffle()
+        }
 
         override fun onPlayerError(error: PlaybackException) {
             val c = controller ?: return
@@ -116,6 +157,8 @@ class PlayerController(
             }
             controller = c
             c.addListener(listener)
+            if (c.shuffleModeEnabled) c.shuffleModeEnabled = false
+            if (originalOrder.isEmpty() && c.mediaItemCount > 0) originalOrder = allTracks(c)
             pending.toList().forEach { it(c) }
             pending.clear()
             sync()
@@ -134,10 +177,16 @@ class PlayerController(
         if (tracks.isEmpty()) return
         tracks.forEach { known[it.id] = it }
         playContext = from
+        if (shuffle != null) setShuffle(shuffle)
         withController { c ->
-            if (shuffle != null) c.shuffleModeEnabled = shuffle
+            // Like Spotify, whatever you queued up survives starting something else.
+            val pending = pendingQueued(c)
+            originalOrder = tracks
             val start = if (shuffle == true) tracks.indices.random() else startIndex.coerceIn(tracks.indices)
-            c.setMediaItems(tracks.map { mediaItemFor(it) }, start, 0L)
+            val ordered = if (shuffleOn) listOf(tracks[start]) + tracks.filterIndexed { i, _ -> i != start }.shuffled() else tracks
+            val startAt = if (shuffleOn) 0 else start
+            val items = ordered.toMutableList().apply { addAll(startAt + 1, pending) }
+            c.setMediaItems(items.map { mediaItemFor(it) }, startAt, 0L)
             c.prepare()
             c.play()
         }
@@ -162,7 +211,68 @@ class PlayerController(
         updatePosition(it)
     }
 
-    fun toggleShuffle() = withController { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+    fun toggleShuffle() {
+        setShuffle(!shuffleOn)
+        sync()
+        withController { c ->
+            if (shuffleOn) shuffleRest(c) else unshuffle(c)
+        }
+    }
+
+    /** Shuffles everything that isn't queued again, keeping the current song playing. */
+    fun reshuffle() = withController { c ->
+        if (shuffleOn) shuffleRest(c)
+    }
+
+    private fun setShuffle(on: Boolean) {
+        shuffleOn = on
+        if (settings.current.shuffle != on) settings.update { it.copy(shuffle = on) }
+    }
+
+    private fun allTracks(c: MediaController): List<Track> = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).toTrack() }
+
+    private fun pendingQueued(c: MediaController): List<Track> {
+        val cur = c.currentMediaItemIndex
+        if (cur == C.INDEX_UNSET || c.mediaItemCount == 0) return emptyList()
+        return (cur + 1 until c.mediaItemCount).map { c.getMediaItemAt(it) }.takeWhile { it.mediaId in queuedIds }.map { it.toTrack() }
+    }
+
+    /** Queued songs stay on top, the rest of the songs (played or not) get shuffled in after them. */
+    private fun shuffleRest(c: MediaController) {
+        val cur = c.currentMediaItemIndex
+        if (cur == C.INDEX_UNSET || c.mediaItemCount < 2) return
+        val all = allTracks(c)
+        val pending = pendingQueued(c)
+        val rest = all.filterIndexed { i, _ -> i != cur && i !in (cur + 1)..(cur + pending.size) }
+        rebuildAround(c, emptyList(), pending + rest.shuffled())
+    }
+
+    /** Back to the original order, carrying on from the song that's playing. */
+    private fun unshuffle(c: MediaController) {
+        val cur = c.currentMediaItemIndex
+        if (cur == C.INDEX_UNSET || originalOrder.isEmpty()) return
+        val all = allTracks(c)
+        val current = all[cur]
+        val pending = pendingQueued(c)
+        val inOriginal = originalOrder.mapTo(HashSet()) { it.id }
+        // Songs autoplay added along the way weren't in the original list. Keep them at the end.
+        val extras = all.drop(cur + 1 + pending.size).filter { it.id !in inOriginal }
+        val pos = originalOrder.indexOfFirst { it.id == current.id }
+        val before = if (pos >= 0) originalOrder.take(pos) else emptyList()
+        val after = if (pos >= 0) originalOrder.drop(pos + 1) else originalOrder
+        rebuildAround(c, before, pending + after + extras)
+    }
+
+    /** Swaps out everything around the current song without interrupting it. */
+    private fun rebuildAround(c: MediaController, before: List<Track>, after: List<Track>) {
+        val cur = c.currentMediaItemIndex
+        if (cur == C.INDEX_UNSET) return
+        val count = c.mediaItemCount
+        if (cur + 1 < count) c.removeMediaItems(cur + 1, count)
+        if (cur > 0) c.removeMediaItems(0, cur)
+        if (before.isNotEmpty()) c.addMediaItems(0, before.map { mediaItemFor(it) })
+        if (after.isNotEmpty()) c.addMediaItems(after.map { mediaItemFor(it) })
+    }
 
     fun cycleRepeat() = withController {
         it.repeatMode = when (it.repeatMode) {
@@ -172,18 +282,68 @@ class PlayerController(
         }
     }
 
+    /** Straight after the current song, ahead of anything else in the queue. */
     fun playNext(track: Track) {
         known[track.id] = track
         withController { c ->
-            if (c.mediaItemCount == 0) play(listOf(track)) else c.addMediaItem(c.currentMediaItemIndex + 1, mediaItemFor(track))
+            if (c.mediaItemCount == 0) {
+                play(listOf(track))
+            } else {
+                queuedIds += track.id
+                c.addMediaItem(c.currentMediaItemIndex + 1, mediaItemFor(track))
+            }
         }
     }
 
+    /** After the current song and anything queued before it, but ahead of the rest of the playlist, like Spotify. */
     fun addToQueue(track: Track) {
         known[track.id] = track
         withController { c ->
-            if (c.mediaItemCount == 0) play(listOf(track)) else c.addMediaItem(mediaItemFor(track))
+            if (c.mediaItemCount == 0) {
+                play(listOf(track))
+            } else {
+                val at = c.currentMediaItemIndex + 1 + pendingQueued(c).size
+                queuedIds += track.id
+                c.addMediaItem(at, mediaItemFor(track))
+            }
         }
+    }
+
+    /**
+     * Drag and drop in the queue. Positions count from the first song after the current one.
+     * Dropping a song among the queued ones makes it part of the queue; dragging a queued song
+     * below them lets it go back to being part of the playlist.
+     */
+    fun moveInQueue(from: Int, to: Int) = withController { c ->
+        val base = c.currentMediaItemIndex + 1
+        if (base <= 0 || from == to || base + maxOf(from, to) >= c.mediaItemCount) return@withController
+        val queued = pendingQueued(c).size
+        val id = c.getMediaItemAt(base + from).mediaId
+        val wasQueued = from < queued
+        c.moveMediaItem(base + from, base + to)
+        if (wasQueued && to >= queued) queuedIds -= id
+        if (!wasQueued && to < queued) queuedIds += id
+        sync()
+    }
+
+    /** Empties "Next in queue" and leaves the playlist alone. */
+    fun clearQueue() = withController { c ->
+        val n = pendingQueued(c).size
+        val base = c.currentMediaItemIndex + 1
+        queuedIds.clear()
+        if (n > 0) c.removeMediaItems(base, base + n)
+    }
+
+    /** Removes several songs at once, from the queue's Edit mode. */
+    fun removeFromQueue(indices: Collection<Int>) = withController { c ->
+        val pending = pendingQueued(c).size
+        val base = c.currentMediaItemIndex + 1
+        indices.filter { it in 0 until c.mediaItemCount && it != c.currentMediaItemIndex }
+            .sortedDescending()
+            .forEach { i ->
+                if (i in base until base + pending) queuedIds -= c.getMediaItemAt(i).mediaId
+                c.removeMediaItem(i)
+            }
     }
 
     fun skipTo(index: Int) = withController {
@@ -193,13 +353,12 @@ class PlayerController(
         }
     }
 
-    fun removeFromQueue(index: Int) = withController {
-        if (index in 0 until it.mediaItemCount && index != it.currentMediaItemIndex) it.removeMediaItem(index)
-    }
+    fun removeFromQueue(index: Int) = removeFromQueue(listOf(index))
 
     /** Pass null to cancel. */
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
+        sleepAtTrackEnd = false
         if (minutes == null) {
             sleepEndsAt = null
         } else {
@@ -212,6 +371,14 @@ class PlayerController(
                 sync()
             }
         }
+        sync()
+    }
+
+    /** Pauses when the current song finishes instead of after a set time. */
+    fun setSleepAtTrackEnd() {
+        sleepJob?.cancel()
+        sleepEndsAt = null
+        sleepAtTrackEnd = true
         sync()
     }
 
@@ -249,6 +416,8 @@ class PlayerController(
     private fun sync() {
         val c = controller ?: return
         val current = c.currentMediaItem?.toTrack()
+        // A queued song that's now playing has left the queue.
+        if (current != null) queuedIds -= current.id
         if (current != null && current.id != lastRecordedId && c.playWhenReady) {
             lastRecordedId = current.id
             if (!settings.current.privateSession) library.recordPlay(current)
@@ -263,8 +432,11 @@ class PlayerController(
         val currentIndex = c.currentMediaItemIndex
         if (!timeline.isEmpty && currentIndex != C.INDEX_UNSET && currentIndex < timeline.windowCount) {
             var i = timeline.getNextWindowIndex(currentIndex, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
+            var inQueueBlock = true
             while (i != C.INDEX_UNSET && upNext.size < 100) {
-                upNext += QueueEntry(i, c.getMediaItemAt(i).toTrack())
+                val item = c.getMediaItemAt(i)
+                inQueueBlock = inQueueBlock && item.mediaId in queuedIds
+                upNext += QueueEntry(i, item.toTrack(), queued = inQueueBlock)
                 i = timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
             }
         }
@@ -275,11 +447,12 @@ class PlayerController(
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
             durationMs = durationOf(c, current),
-            shuffle = c.shuffleModeEnabled,
+            shuffle = shuffleOn,
             repeatMode = c.repeatMode,
             upNext = upNext,
             context = playContext,
             sleepTimerEndsAt = sleepEndsAt,
+            sleepAtTrackEnd = sleepAtTrackEnd,
             onAir = if (current?.isRadio == true) onAirText(c, current) else null,
         )
     }

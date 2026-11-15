@@ -95,6 +95,8 @@ class AppActions(
     val showQueue: () -> Unit,
     val showCredits: (track: Track) -> Unit,
     val showJam: (track: Track) -> Unit,
+    val showSleepTimer: () -> Unit,
+    val showSongDna: (track: Track) -> Unit,
     val openPlayer: () -> Unit,
     val closePlayer: () -> Unit,
 ) {

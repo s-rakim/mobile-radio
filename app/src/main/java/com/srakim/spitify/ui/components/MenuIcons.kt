@@ -94,6 +94,56 @@ object MenuIcons {
         "M19.5,3.5L21.5,4.2",
     )
 
+    /** Stopwatch, for the sleep timer. */
+    val Timer = icon(
+        "Timer",
+        "M12,6.25a7.5,7.5 0 1,0 0,15a7.5,7.5 0 1,0 0,-15z",
+        "M10,2.5H14",
+        "M12,2.5V6.25",
+        "M12,13.75V10",
+        "M18.2,6.6L19.6,5.2",
+    )
+
+    /** A screen with a caption line, like Spotify's lyrics toggle. */
+    val Lyrics = icon(
+        "Lyrics",
+        "M4.5,3.5H19.5a1.5,1.5 0 0,1 1.5,1.5V19a1.5,1.5 0 0,1 -1.5,1.5H4.5a1.5,1.5 0 0,1 -1.5,-1.5V5a1.5,1.5 0 0,1 1.5,-1.5z",
+        "M7,15.5H9.5",
+        "M12,15.5H17",
+    )
+
+    /** Two strands with rungs: what a song is made of. */
+    val Dna = icon(
+        "Dna",
+        "M7,2.5C7,8 17,8 17,12C17,16 7,16 7,21.5",
+        "M17,2.5C17,8 7,8 7,12",
+        "M7,12C7,16 17,16 17,21.5",
+        "M9,5.5H15",
+        "M9,18.5H15",
+    )
+
+    /** Four arrows out to the corners, for full-screen lyrics. */
+    val Expand = icon(
+        "Expand",
+        "M14.5,3.5H20.5V9.5",
+        "M20.5,3.5L14,10",
+        "M9.5,20.5H3.5V14.5",
+        "M3.5,20.5L10,14",
+    )
+
+    /** Three lines, the drag handle on queue rows. */
+    val Drag = icon("Drag", "M4,7.5H20", "M4,12H20", "M4,16.5H20")
+
+    /** A phone with a speaker, for the output device row. */
+    val Device = icon(
+        "Device",
+        "M3.5,4H9.5a1,1 0 0,1 1,1V19a1,1 0 0,1 -1,1H3.5a1,1 0 0,1 -1,-1V5a1,1 0 0,1 1,-1z",
+        "M14.5,4H20.5a1,1 0 0,1 1,1V19a1,1 0 0,1 -1,1H14.5a1,1 0 0,1 -1,-1V5a1,1 0 0,1 1,-1z",
+        "M17.5,11.5a2.25,2.25 0 1,0 0,4.5a2.25,2.25 0 1,0 0,-4.5z",
+        "M17.5,7.25V7.3",
+        "M5.5,17H7.5",
+    )
+
     private fun icon(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { d ->

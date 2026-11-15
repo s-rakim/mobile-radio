@@ -2,4 +2,6 @@
 <paths>
     <!-- Update APKs downloaded by AppUpdater. -->
     <cache-path name="updates" path="updates/" />
+    <!-- Lyric cards made for sharing. -->
+    <cache-path name="shared" path="shared/" />
 </paths>

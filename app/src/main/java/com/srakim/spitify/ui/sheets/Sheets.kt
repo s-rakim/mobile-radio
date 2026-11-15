@@ -70,6 +70,7 @@ import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalLibrary
 import com.srakim.spitify.ui.LocalPlayer
+import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.components.Artwork
 import com.srakim.spitify.ui.components.MenuIcons
 import com.srakim.spitify.ui.components.MosaicArt
@@ -108,6 +109,9 @@ fun SheetOption(icon: ImageVector, label: String, onClick: () -> Unit, tint: Col
     }
 }
 
+/** Stands in for a playlist id when the menu is opened from Liked Songs, so "Remove from this playlist" unlikes. */
+const val LIKED_PLAYLIST = "liked"
+
 /** Long-press or "more" on any song. */
 @Composable
 fun TrackMenuSheet(track: Track, playlistId: String?, onDismiss: () -> Unit) {
@@ -140,6 +144,9 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
     val player = LocalPlayer.current
     val actions = LocalActions.current
     val downloads = LocalDownloads.current
+    val settingsStore = LocalSettings.current
+    val settings by settingsStore.state.collectAsStateWithLifecycle()
+    val playback by player.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lib by library.state.collectAsStateWithLifecycle()
     val dl by downloads.state.collectAsStateWithLifecycle()
@@ -166,11 +173,25 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
         context.startActivity(Intent.createChooser(send, "Share song"))
         onDismiss()
     })
+    if (!track.isRadio) {
+        SheetOption(MenuIcons.Lyrics, if (settings.showLyrics) "Lyrics • On" else "Lyrics • Off", onClick = {
+            val on = !settings.showLyrics
+            settingsStore.update { it.copy(showLyrics = on) }
+            actions.toast(if (on) "Lyrics on" else "Lyrics off")
+            onDismiss()
+        })
+    }
     SheetOption(MenuIcons.AddToPlaylist, "Add to playlist", onClick = {
         onDismiss()
         actions.showAddToPlaylist(track)
     })
-    if (playlistId != null) {
+    if (playlistId == LIKED_PLAYLIST && liked) {
+        SheetOption(MenuIcons.RemoveFromPlaylist, "Remove from this playlist", onClick = {
+            library.toggleLike(track)
+            actions.toast("Removed from Liked Songs")
+            onDismiss()
+        })
+    } else if (playlistId != null && playlistId != LIKED_PLAYLIST) {
         SheetOption(MenuIcons.RemoveFromPlaylist, "Remove from this playlist", onClick = {
             library.removeFromPlaylist(playlistId, track.id)
             actions.toast("Removed from playlist")
@@ -203,6 +224,10 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
                 actions.openArtistOf(track)
             })
         }
+        SheetOption(MenuIcons.Dna, "Explore song DNA", onClick = {
+            onDismiss()
+            actions.showSongDna(track)
+        })
         SheetOption(MenuIcons.Jam, "Start a Jam", onClick = {
             onDismiss()
             actions.showJam(track)
@@ -216,6 +241,21 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
                 onDismiss()
             },
         )
+    }
+    // Only offered while something's playing, since that's what the timer stops.
+    if (playback.current != null) {
+        val timerOn = playback.sleepTimerEndsAt != null || playback.sleepAtTrackEnd
+        SheetOption(
+            MenuIcons.Timer,
+            sleepTimerLabel(playback)?.let { "Sleep timer • $it" } ?: "Sleep timer",
+            tint = if (timerOn) SpitifyColors.Accent else SpitifyColors.TextSecondary,
+            onClick = {
+                onDismiss()
+                actions.showSleepTimer()
+            },
+        )
+    }
+    if (!track.isRadio) {
         SheetOption(MenuIcons.Radio, "Go to song radio", onClick = {
             onDismiss()
             actions.startRadio(track)

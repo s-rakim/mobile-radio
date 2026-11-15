@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -95,6 +96,7 @@ fun LibraryScreen() {
     val settings by LocalSettings.current.state.collectAsStateWithLifecycle()
     val catalog = LocalCatalog.current
     val localTracks by catalog.local.tracks.collectAsStateWithLifecycle()
+    val social by com.srakim.spitify.ui.LocalApp.current.social.state.collectAsStateWithLifecycle()
 
     var filter by rememberSaveable { mutableStateOf<LibraryFilter?>(null) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTS) }
@@ -114,10 +116,22 @@ fun LibraryScreen() {
             if (catalog.server.enabled) {
                 add(LibraryEntry("SERVER:server", "Your server", "Navidrome / Subsonic", RecentItem.Kind.PLAYLIST, "server", null, pinned = true, special = "server"))
             }
-            lib.playlists.forEach { p ->
+            lib.folders.forEach { f ->
+                val inside = lib.playlists.filter { it.folderId == f.id }
+                add(LibraryEntry("FOLDER:${f.id}", f.name, "Folder • ${inside.size} playlists", RecentItem.Kind.MY_PLAYLIST, f.id, null, addedAt = f.createdAt, special = "folder"))
+            }
+            social.collabs.forEach { c ->
                 add(
                     LibraryEntry(
-                        "MY_PLAYLIST:${p.id}", p.name, "Playlist • You", RecentItem.Kind.MY_PLAYLIST, p.id,
+                        "COLLAB:${c.id}", c.name, "Collaborative • ${c.members.size} people", RecentItem.Kind.MY_PLAYLIST, c.id,
+                        c.tracks.firstOrNull()?.track?.artwork, c.tracks.map { it.track.artwork }, c.createdAt, special = "collab",
+                    ),
+                )
+            }
+            lib.playlists.filter { it.folderId == null || lib.folders.none { f -> f.id == it.folderId } }.forEach { p ->
+                add(
+                    LibraryEntry(
+                        "MY_PLAYLIST:${p.id}", p.name, if (p.mixed) "Mixed playlist • You" else "Playlist • You", RecentItem.Kind.MY_PLAYLIST, p.id,
                         p.tracks.firstOrNull()?.artwork, p.tracks.map { it.artwork }, p.createdAt,
                     ),
                 )
@@ -152,6 +166,8 @@ fun LibraryScreen() {
         e.special == "local" -> actions.openLocalFiles()
         e.special == "server" -> actions.openServer()
         e.special == "recent" -> actions.openHistory()
+        e.special == "folder" -> actions.openFolder(e.id)
+        e.special == "collab" -> actions.openCollab(e.id)
         else -> openKind(e)
     }
 
@@ -167,14 +183,14 @@ fun LibraryScreen() {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(Modifier.statusBarsPadding()) {
                 Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProfileBadge(onClick = actions::openSettings)
+                    ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                     Spacer(Modifier.width(12.dp))
                     Text("Your Library", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                     IconButton(onClick = actions::openHistory) {
                         Icon(Icons.Rounded.History, contentDescription = "Listening history")
                     }
-                    IconButton(onClick = { actions.showCreatePlaylist(null) }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Create playlist")
+                    IconButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Create) }) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Create")
                     }
                 }
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -255,6 +271,8 @@ private fun EntryArt(e: LibraryEntry, modifier: Modifier) {
         e.special == "local" -> IconArt(Icons.Rounded.Folder, Color(0xFF059669), Color(0xFF064E3B), modifier)
         e.special == "server" -> IconArt(Icons.Rounded.Dns, Color(0xFF0891B2), Color(0xFF164E63), modifier)
         e.special == "recent" -> IconArt(Icons.Rounded.History, Color(0xFFEA580C), Color(0xFF9A3412), modifier)
+        e.special == "folder" -> IconArt(Icons.Rounded.Folder, Color(0xFF7C3AED), Color(0xFF4C1D95), modifier)
+        e.special == "collab" && e.images.none { it != null } -> IconArt(Icons.Rounded.Groups, Color(0xFF0D9488), Color(0xFF134E4A), modifier)
         else -> KindArt(e, modifier)
     }
 }

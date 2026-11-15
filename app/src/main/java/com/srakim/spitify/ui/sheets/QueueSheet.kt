@@ -434,15 +434,15 @@ private fun BarButton(label: String, icon: ImageVector?, on: Boolean, modifier: 
     }
 }
 
-/** Where the sound is going. Tap to pick another speaker or headphones. */
+/** Where the sound is going. Tap for the Connect sheet: devices, volume and Jams. */
 @Composable
 fun OutputDeviceButton(modifier: Modifier = Modifier, compact: Boolean = false) {
-    val context = LocalContext.current
+    val actions = com.srakim.spitify.ui.LocalActions.current
     val output = rememberOutputDevice()
     Row(
         modifier
             .clip(RoundedCornerShape(6.dp))
-            .clickable { OutputDevice.openPicker(context) }
+            .clickable { actions.showSheet(com.srakim.spitify.ui.AppSheet.Connect) }
             .padding(vertical = 4.dp, horizontal = if (compact) 4.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

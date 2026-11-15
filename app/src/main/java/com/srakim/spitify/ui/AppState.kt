@@ -81,6 +81,32 @@ object Dest {
     const val LOCAL_FILES = "local"
     const val SERVER = "server"
     const val ACCOUNT = "account"
+    const val SETTINGS_SECTION = "settings/section/{id}"
+    const val IMPORT = "import"
+    const val STATS = "stats"
+    const val UPDATES = "updates"
+    const val MESSAGES = "messages"
+    const val CHAT = "chat/{name}"
+    const val FRIENDS = "friends"
+    const val PROFILE = "profile/{name}"
+    const val COLLAB = "collab/{id}"
+    const val BLEND = "blend/{name}"
+    const val FOLDER = "folder/{id}"
+}
+
+/** Sheets and dialogs any screen can open. */
+sealed interface AppSheet {
+    data object ProfileDrawer : AppSheet
+    data object Create : AppSheet
+    data object Connect : AppSheet
+    data class SendTo(val track: Track? = null, val playlist: com.srakim.spitify.data.SharedPlaylist? = null) : AppSheet
+    data object AiPlaylist : AppSheet
+    data object Dj : AppSheet
+    data class NewCollab(val withTrack: Track? = null) : AppSheet
+    data object NewMixed : AppSheet
+    data object BlendPicker : AppSheet
+    data object NewFolder : AppSheet
+    data class MoveToFolder(val playlistId: String) : AppSheet
 }
 
 /** App-wide actions any screen can trigger: navigation, sheets, toasts. */
@@ -97,6 +123,7 @@ class AppActions(
     val showJam: (track: Track) -> Unit,
     val showSleepTimer: () -> Unit,
     val showSongDna: (track: Track) -> Unit,
+    val showSheet: (AppSheet) -> Unit,
     val openPlayer: () -> Unit,
     val closePlayer: () -> Unit,
 ) {
@@ -174,6 +201,17 @@ class AppActions(
     fun openHistory() = go("history")
     fun openDownloads() = go("downloads")
     fun openAccount() = go("account")
+    fun openSettingsSection(id: String) = go("settings/section/$id")
+    fun openImport() = go("import")
+    fun openStats() = go("stats")
+    fun openUpdates() = go("updates")
+    fun openMessages() = go("messages")
+    fun openChat(name: String) = go("chat/${android.net.Uri.encode(name)}")
+    fun openFriends() = go("friends")
+    fun openProfile(name: String) = go("profile/${android.net.Uri.encode(name)}")
+    fun openCollab(id: String) = go("collab/${android.net.Uri.encode(id)}")
+    fun openBlend(name: String) = go("blend/${android.net.Uri.encode(name)}")
+    fun openFolder(id: String) = go("folder/${android.net.Uri.encode(id)}")
     fun openLocalFiles() = go("local")
     fun openServer() = go("server")
     fun back() = nav.popBackStack()

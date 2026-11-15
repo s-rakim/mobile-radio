@@ -1,5 +1,8 @@
 package com.srakim.spitify.ui.sheets
 
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -185,6 +188,12 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
         onDismiss()
         actions.showAddToPlaylist(track)
     })
+    if (!track.isRadio) {
+        SheetOption(Icons.AutoMirrored.Rounded.Send, "Send to a friend", onClick = {
+            onDismiss()
+            actions.showSheet(com.srakim.spitify.ui.AppSheet.SendTo(track = track))
+        })
+    }
     if (playlistId == LIKED_PLAYLIST && liked) {
         SheetOption(MenuIcons.RemoveFromPlaylist, "Remove from this playlist", onClick = {
             library.toggleLike(track)
@@ -265,7 +274,7 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
             actions.showCredits(track)
         })
     }
-    if (track.canDownload) {
+    if (track.canDownload && settings.offlineAccess) {
         SheetOption(
             if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
             if (downloaded) "Remove download" else "Download",
@@ -313,6 +322,9 @@ fun AddToPlaylistSheet(track: Track, onDismiss: () -> Unit) {
     val library = LocalLibrary.current
     val actions = LocalActions.current
     val lib by library.state.collectAsStateWithLifecycle()
+    val app = com.srakim.spitify.ui.LocalApp.current
+    val social by app.social.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     SpitifySheet(onDismiss) {
         Text(
@@ -328,6 +340,41 @@ fun AddToPlaylistSheet(track: Track, onDismiss: () -> Unit) {
             })
         }
         LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            if (social.collabs.isNotEmpty()) {
+                item {
+                    Text("Shared with friends", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.TextSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                }
+                items(social.collabs, key = { "c:" + it.id }) { c ->
+                    val already = c.tracks.any { it.track.id == track.id }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onDismiss()
+                                if (already) {
+                                    actions.toast("Already in ${c.name}")
+                                } else scope.launch {
+                                    runCatching { app.social.addToCollab(c.id, track) }
+                                        .onSuccess { actions.toast("Added to ${c.name}") }
+                                        .onFailure { actions.toast(it.message ?: "Couldn't add it") }
+                                }
+                            }
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MosaicArt(c.tracks.map { it.track.artwork }, Modifier.size(52.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(c.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Collaborative • ${c.members.size} people", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (already) Icon(Icons.Rounded.CheckCircle, contentDescription = "Already added", tint = SpitifyColors.Accent)
+                    }
+                }
+                item {
+                    Text("Your playlists", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.TextSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                }
+            }
             items(lib.playlists, key = { it.id }) { pl ->
                 val already = pl.tracks.any { it.id == track.id }
                 Row(
@@ -359,32 +406,6 @@ fun AddToPlaylistSheet(track: Track, onDismiss: () -> Unit) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             )
-        }
-    }
-}
-
-/** What the Create tab opens. */
-@Composable
-fun CreateSheet(onDismiss: () -> Unit, onPlaylist: () -> Unit) {
-    SpitifySheet(onDismiss) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onPlaylist)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier.size(52.dp).clip(CircleShape).background(SpitifyColors.Highlight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = SpitifyColors.TextSecondary)
-            }
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text("Playlist", style = MaterialTheme.typography.titleMedium)
-                Text("Build a playlist with songs", style = MaterialTheme.typography.bodySmall)
-            }
         }
     }
 }

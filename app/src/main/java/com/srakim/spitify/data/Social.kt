@@ -219,6 +219,8 @@ class SocialStore(
         decode(account.request("api/users/search", query = mapOf("q" to query)))
     }
 
+    suspend fun profile(name: String): Profile = call { decode(account.request("api/users/$name")) }
+
     suspend fun follow(name: String) = call {
         val r = decode<FriendsReply>(account.request("api/friends/$name", "POST"))
         _state.update { it.copy(me = r.me, friends = r.friends) }

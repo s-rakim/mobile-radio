@@ -119,4 +119,7 @@ function rateLimited(ip) {
   return recent.length > 10;
 }
 
-module.exports = { AuthError, register, login, logout, userForToken, getLibrary, putLibrary, rateLimited };
+const userExists = (name) => Object.prototype.hasOwnProperty.call(users, name);
+const allUsernames = () => Object.keys(users);
+
+module.exports = { AuthError, register, login, logout, userForToken, getLibrary, putLibrary, rateLimited, userExists, allUsernames };

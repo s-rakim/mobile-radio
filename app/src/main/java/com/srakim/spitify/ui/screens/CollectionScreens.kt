@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.MergeType
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -73,6 +76,7 @@ import com.srakim.spitify.ui.components.rememberArtworkColors
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.sheets.CreatePlaylistDialog
 import com.srakim.spitify.ui.sheets.SheetOption
+import com.srakim.spitify.ui.sheets.LIKED_PLAYLIST
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -211,7 +215,7 @@ fun LikedSongsScreen() {
         collectionTracks(
             tracks, ctx, playback.current?.id, playback.isPlaying, likedIds,
             onPlay = { player.play(tracks, it, ctx) },
-            onMore = { actions.showTrackMenu(it, null) },
+            onMore = { actions.showTrackMenu(it, LIKED_PLAYLIST) },
         )
     }
 }
@@ -312,6 +316,25 @@ fun MyPlaylistScreen(id: String) {
                     close()
                     actions.openSearchInput()
                 })
+                SheetOption(Icons.Rounded.MergeType, if (playlist.mixed) "Mixed playlist • On" else "Mixed playlist • Off", onClick = {
+                    close()
+                    library.setMixed(playlist.id, !playlist.mixed)
+                    actions.toast(if (playlist.mixed) "Songs play one after another again" else "Songs now blend into each other")
+                })
+                SheetOption(Icons.Rounded.Folder, if (playlist.folderId == null) "Move to folder" else "Move to another folder", onClick = {
+                    close()
+                    actions.showSheet(com.srakim.spitify.ui.AppSheet.MoveToFolder(playlist.id))
+                })
+                if (playlist.tracks.isNotEmpty()) {
+                    SheetOption(Icons.AutoMirrored.Rounded.Send, "Send to a friend", onClick = {
+                        close()
+                        actions.showSheet(
+                            com.srakim.spitify.ui.AppSheet.SendTo(
+                                playlist = com.srakim.spitify.data.SharedPlaylist(playlist.id, playlist.name, playlist.tracks.firstOrNull()?.artwork, playlist.tracks),
+                            ),
+                        )
+                    })
+                }
                 SheetOption(Icons.Rounded.Delete, "Delete playlist", onClick = {
                     close()
                     library.deletePlaylist(playlist.id)

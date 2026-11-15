@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.srakim.spitify.data.Jam
+import com.srakim.spitify.data.Links
 import com.srakim.spitify.ui.SpitifyRoot
 import com.srakim.spitify.ui.theme.SpitifyTheme
 
@@ -38,7 +39,7 @@ class MainActivity : ComponentActivity() {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        Jam.parse(intent?.data)?.let { Jam.incoming.value = it }
+        handleLink(intent)
 
         setContent {
             SpitifyTheme {
@@ -47,10 +48,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // The activity is singleTask, so a Jam link tapped while Spitify is open lands here.
+    // The activity is singleTask, so a Jam, collab, profile or Spotify sign-in link tapped while Spitify is open lands here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        Jam.parse(intent.data)?.let { Jam.incoming.value = it }
+        handleLink(intent)
+    }
+
+    private fun handleLink(intent: Intent?) {
+        val uri = intent?.data ?: return
+        Jam.parse(uri)?.let { Jam.incoming.value = it; return }
+        Links.parse(uri)?.let { Links.incoming.value = it }
     }
 }

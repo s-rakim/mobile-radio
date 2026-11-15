@@ -18,6 +18,13 @@ import com.srakim.spitify.data.SubsonicApi
 import com.srakim.spitify.data.ThemeStore
 import com.srakim.spitify.playback.AudioEffects
 import com.srakim.spitify.playback.PlayerController
+import com.srakim.spitify.data.ListeningStats
+import com.srakim.spitify.data.NearbyJam
+import com.srakim.spitify.data.SocialStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -29,6 +36,11 @@ class SpitifyApp : Application(), ImageLoaderFactory {
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            // Offline mode: nothing leaves the phone. Downloads and local files still play.
+            .addInterceptor { chain ->
+                if (settings.current.offlineMode) throw java.io.IOException("Offline mode is on")
+                chain.proceed(chain.request())
+            }
             .build()
     }
 
@@ -37,7 +49,11 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val server: SubsonicApi by lazy { SubsonicApi(httpClient, settings) }
     val localMusic: LocalMusic by lazy { LocalMusic(this) }
     val webServer: SpitifyServerApi by lazy { SpitifyServerApi(httpClient, settings) }
-    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings) }
+    val archive: com.srakim.spitify.data.ArchiveApi by lazy { com.srakim.spitify.data.ArchiveApi(httpClient, settings) }
+    val ccMixter: com.srakim.spitify.data.CcMixterApi by lazy { com.srakim.spitify.data.CcMixterApi(httpClient, settings) }
+    val jamendo: com.srakim.spitify.data.JamendoApi by lazy { com.srakim.spitify.data.JamendoApi(httpClient, settings) }
+    val soundCloud: com.srakim.spitify.data.SoundCloudApi by lazy { com.srakim.spitify.data.SoundCloudApi(httpClient, settings) }
+    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings, archive, ccMixter, jamendo, soundCloud) }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
@@ -46,6 +62,12 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val account: AccountSync by lazy { AccountSync(this, httpClient, settings, library) }
     val radio: RadioBrowserApi by lazy { RadioBrowserApi(this, httpClient) }
     val player: PlayerController by lazy { PlayerController(this, api, library, settings, downloads, radio) }
+    val social: SocialStore by lazy { SocialStore(this, account, settings) }
+    val stats: ListeningStats by lazy { ListeningStats(this, settings) }
+    val nearby: NearbyJam by lazy { NearbyJam(this) }
+    val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy { com.srakim.spitify.data.SpotifyImport(this, httpClient, settings) }
+    val dj: com.srakim.spitify.data.AiDj by lazy { com.srakim.spitify.data.AiDj(this) }
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Set by the playback service while it's alive, so Settings can read equaliser bands. */
     @Volatile
@@ -56,6 +78,24 @@ class SpitifyApp : Application(), ImageLoaderFactory {
         themes.restore()
         webServer // created early so saved server links can be resolved during playback
         account.start()
+        social.start()
+        stats.start(player, social)
+        dj.start()
+        // Friends see what you're playing: tell the server when the song or play state changes,
+        // and every couple of minutes while it keeps playing so it still shows as live.
+        appScope.launch {
+            var last: Pair<String?, Boolean>? = null
+            var lastAt = 0L
+            player.state.collect { s ->
+                val key = s.current?.id to s.isPlaying
+                val now = System.currentTimeMillis()
+                if (key != last || (s.isPlaying && now - lastAt > 120_000)) {
+                    last = key
+                    lastAt = now
+                    social.reportPlaying(s.current, s.isPlaying)
+                }
+            }
+        }
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

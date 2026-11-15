@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 40
     env:
       VERSION_CODE: ${{ github.run_number }}
+      SPITIFY_SERVER_URL: ${{ vars.SPITIFY_SERVER_URL }}
+      SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
       VERSION_NAME: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5

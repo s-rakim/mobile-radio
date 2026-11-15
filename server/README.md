@@ -91,3 +91,43 @@ Optional. From a home IP YouTube usually doesn't ask. If searches start failing 
 | `YTDLP_POT_PROVIDER_URL` | bgutil PO token server. Set by docker-compose. |
 | `YT_PROXY` | Routes yt-dlp through a proxy. Empty means direct. |
 | `PYTHON` | Python command. Defaults to `python` on Windows, `python3` elsewhere. |
+
+## Friends, messages and shared playlists
+
+The same accounts the app uses for library sync also power the social features. They only ever connect people who have an account on this server; nothing goes to any outside service.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/friends` | People you follow and who follow you, with what they're playing |
+| `POST` / `DELETE /api/friends/:name` | Follow / unfollow a Spitify user |
+| `GET /api/users/search?q=` | Find Spitify users by name |
+| `PUT /api/social/profile` | Display name, and whether friends can see your listening |
+| `PUT /api/activity` | The app checks in with what's playing |
+| `PUT /api/stats`, `GET /api/stats/friends?week=` | Weekly minutes, top songs and artists, compared with friends |
+| `GET /api/messages`, `GET` / `POST /api/messages/:name` | Conversations; share songs, playlists or text |
+| `POST /api/messages/:name/:id/react` | React to a message |
+| `/api/collab...` | Collaborative playlists: create, join by link, add and remove songs, leave |
+| `GET /api/blend/:name` | A Blend of your library and a friend's, with a taste match score |
+
+Everything is kept in `data/social.json` next to the accounts. **That folder has to survive restarts**, so host the server somewhere with a persistent disk (the Docker volume on your own machine is fine). Render's free tier wipes its disk on every restart and would lose accounts and messages.
+
+Everyone who wants to be friends in the app has to use the same server address. Set it once for every build with the `SPITIFY_SERVER_URL` Actions variable (Settings → Secrets and variables → Actions → Variables), or each person types it under Settings → Account.
+
+## AI Playlist and AI DJ
+
+`POST /api/ai/playlist` and `POST /api/ai/dj` (signed in) put together sets the way a working DJ would. An agent searches Audius for genres, scenes, moods and artists, rates each song's energy, and sends back a shortlist. `services/djTheory.js` then picks the running order: tempos within a few percent (or half/double time), neighbouring keys on the Camelot wheel, an energy arc that builds and lands, and never the same artist twice in a row. Each song comes back with how to mix into it (long blend, cut on the drop, echo out...).
+
+It works with any chat model that speaks the OpenAI-style `/chat/completions` API. Put these in a `.env` next to `docker-compose.yml`:
+
+```
+AI_API_KEY=your-key
+AI_MODEL=the-model-name-your-provider-lists
+# only if you're not using OpenAI itself:
+AI_BASE_URL=https://openrouter.ai/api/v1
+```
+
+Other base URLs that work: `https://api.groq.com/openai/v1`, `https://api.together.xyz/v1`, `https://api.mistral.ai/v1`, `https://api.deepseek.com/v1`, `https://generativelanguage.googleapis.com/v1beta/openai`, or `http://host.docker.internal:11434/v1` for Ollama on the same PC.
+
+With no key the routes still answer, using keyword rules plus the same sequencer, so the app never breaks. `AI_HOURLY_LIMIT` (default 60) caps requests per account. `GET /api/ai/status` says which mode is on.
+
+There's a standalone Python version with the same logic in `../ai-dj/`.

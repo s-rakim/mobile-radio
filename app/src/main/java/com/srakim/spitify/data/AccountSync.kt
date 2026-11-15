@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -39,6 +40,7 @@ data class SyncedLibrary(
     val playlists: List<UserPlaylist> = emptyList(),
     val savedPlaylists: List<Playlist> = emptyList(),
     val followedArtists: List<Artist> = emptyList(),
+    val folders: List<PlaylistFolder> = emptyList(),
 )
 
 data class AccountState(
@@ -200,6 +202,48 @@ class AccountSync(
 
     private class SignedOut : IOException("Signed out")
 
+    /**
+     * Any signed-in call to the server, for the social features. Blocking, so call it off the
+     * main thread. Answers whatever JSON the server sends, object or list.
+     */
+    fun request(
+        path: String,
+        verb: String = "GET",
+        body: JsonElement? = null,
+        query: Map<String, String> = emptyMap(),
+        /** For calls that take a while on the server, like the AI DJ. */
+        slow: Boolean = false,
+    ): JsonElement {
+        val t = token ?: throw IOException("Log in to use this")
+        val base = serverBase() ?: throw IOException("Add your Spitify server in Settings first")
+        val url = base.newBuilder().apply {
+            path.split("/").filter { it.isNotEmpty() }.forEach { addPathSegment(it) }
+            query.forEach { (k, v) -> addQueryParameter(k, v) }
+        }.build()
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $t").apply {
+            if (verb == "GET") get()
+            else method(verb, (body ?: buildJsonObject {}).toString().toRequestBody(jsonType))
+        }.build()
+        (if (slow) slowHttp else http).newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            val parsed = runCatching { json.parseToJsonElement(text) }.getOrNull()
+            if (response.code == 401) {
+                fail(SignedOut())
+                throw IOException("You were signed out. Log in again.")
+            }
+            if (!response.isSuccessful) {
+                val msg = (parsed as? JsonObject)?.get("error")?.jsonPrimitive?.content
+                throw IOException(msg ?: "Server answered with ${response.code}")
+            }
+            return parsed ?: JsonObject(emptyMap())
+        }
+    }
+
+    private val slowHttp by lazy { http.newBuilder().readTimeout(150, java.util.concurrent.TimeUnit.SECONDS).build() }
+
+    /** The server address: the one typed in Settings, else the one built into the app. */
+    fun serverBase() = SpitifyServerApi.base(settings.current.webServerUrl.ifBlank { com.srakim.spitify.BuildConfig.DEFAULT_SERVER_URL })
+
     private fun call(
         path: String,
         verb: String,
@@ -207,8 +251,7 @@ class AccountSync(
         auth: Boolean = true,
         tokenOverride: String? = null,
     ): JsonObject {
-        val base = SpitifyServerApi.base(settings.current.webServerUrl)
-            ?: throw IOException("Add your Spitify server in Settings first")
+        val base = serverBase() ?: throw IOException("Add your Spitify server in Settings first")
         val url = base.newBuilder().apply { path.split("/").forEach { addPathSegment(it) } }.build()
         val request = Request.Builder().url(url).apply {
             val t = tokenOverride ?: token
@@ -234,7 +277,7 @@ class AccountSync(
         const val KEY_DIRTY = "dirty"
         const val PUSH_DELAY_MS = 2_000L
 
-        fun LibraryState.synced() = SyncedLibrary(liked, playlists, savedPlaylists, followedArtists)
+        fun LibraryState.synced() = SyncedLibrary(liked, playlists, savedPlaylists, followedArtists, folders)
 
         /** Everything from both sides. For a playlist on both, the most recently edited copy wins. */
         fun merge(local: SyncedLibrary, remote: SyncedLibrary): SyncedLibrary {
@@ -248,6 +291,7 @@ class AccountSync(
                 playlists = playlists,
                 savedPlaylists = union(local.savedPlaylists, remote.savedPlaylists) { it.id },
                 followedArtists = union(local.followedArtists, remote.followedArtists) { it.id },
+                folders = union(local.folders, remote.folders) { it.id },
             )
         }
     }

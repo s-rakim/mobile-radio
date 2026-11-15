@@ -101,11 +101,39 @@ import com.srakim.spitify.ui.screens.ThemeScreen
 import com.srakim.spitify.ui.sheets.AddToPlaylistSheet
 import com.srakim.spitify.ui.sheets.CreatePlaylistDialog
 import com.srakim.spitify.ui.sheets.CreateSheet
+import com.srakim.spitify.ui.sheets.CreateOption
+import com.srakim.spitify.ui.sheets.AiPlaylistSheet
+import com.srakim.spitify.ui.sheets.DjSheet
+import com.srakim.spitify.ui.sheets.MoveToFolderSheet
+import com.srakim.spitify.ui.sheets.ProfileDrawer
+import com.srakim.spitify.ui.sheets.ConnectSheet
+import com.srakim.spitify.ui.sheets.SendToSheet
+import com.srakim.spitify.ui.sheets.BlendPickerSheet
+import com.srakim.spitify.ui.sheets.joinFriendJam
+import com.srakim.spitify.ui.screens.BlendScreen
+import com.srakim.spitify.ui.screens.ChatScreen
+import com.srakim.spitify.ui.screens.CollabScreen
+import com.srakim.spitify.ui.screens.FolderScreen
+import com.srakim.spitify.ui.screens.FriendsScreen
+import com.srakim.spitify.ui.screens.ImportScreen
+import com.srakim.spitify.ui.screens.MessagesScreen
+import com.srakim.spitify.ui.screens.ProfileScreen
+import com.srakim.spitify.ui.screens.StatsScreen
+import com.srakim.spitify.ui.screens.UpdatesScreen
+import com.srakim.spitify.data.CollabPreview
+import com.srakim.spitify.data.Links
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.launch
 import com.srakim.spitify.ui.sheets.MiniPlayer
 import com.srakim.spitify.ui.sheets.TrackMenuSheet
 import com.srakim.spitify.ui.sheets.QueueSheet
 import com.srakim.spitify.ui.sheets.CreditsSheet
 import com.srakim.spitify.ui.sheets.JamSheet
+import com.srakim.spitify.ui.sheets.SleepTimerSheet
+import com.srakim.spitify.ui.sheets.SongDnaSheet
 import com.srakim.spitify.data.Jam
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.ui.theme.SpitifyColors
@@ -126,10 +154,15 @@ fun SpitifyRoot(app: SpitifyApp) {
     var addToPlaylist by remember { mutableStateOf<Track?>(null) }
     var createPlaylist by remember { mutableStateOf(false) }
     var createWithTrack by remember { mutableStateOf<Track?>(null) }
-    var createSheet by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf<AppSheet?>(null) }
+    var pendingFolderMove by remember { mutableStateOf<String?>(null) }
+    var collabInvite by remember { mutableStateOf<CollabPreview?>(null) }
+    var hiddenJams by remember { mutableStateOf(setOf<String>()) }
     var queueOpen by remember { mutableStateOf(false) }
     var creditsFor by remember { mutableStateOf<Track?>(null) }
     var jamFor by remember { mutableStateOf<Track?>(null) }
+    var sleepTimerOpen by remember { mutableStateOf(false) }
+    var dnaFor by remember { mutableStateOf<Track?>(null) }
 
     val actions = remember(nav) {
         AppActions(
@@ -146,6 +179,9 @@ fun SpitifyRoot(app: SpitifyApp) {
             showQueue = { queueOpen = true },
             showCredits = { creditsFor = it },
             showJam = { jamFor = it },
+            showSleepTimer = { sleepTimerOpen = true },
+            showSongDna = { dnaFor = it },
+            showSheet = { sheet = it },
             openPlayer = { playerOpen = true },
             closePlayer = { playerOpen = false },
         )
@@ -156,6 +192,46 @@ fun SpitifyRoot(app: SpitifyApp) {
 
     LaunchedEffect(Unit) {
         app.player.messages.collect { actions.toast(it) }
+    }
+    LaunchedEffect(Unit) {
+        app.dj.messages.collect { actions.toast(it) }
+    }
+    val account by app.account.state.collectAsStateWithLifecycle()
+    // Jams on the same Wi-Fi show up as a banner while signed in.
+    androidx.compose.runtime.DisposableEffect(account.username) {
+        if (account.signedIn) app.nearby.startLooking(account.username)
+        onDispose { app.nearby.stopLooking() }
+    }
+    val nearbyJams by app.nearby.nearby.collectAsStateWithLifecycle()
+    val hostingJam by app.nearby.hosting.collectAsStateWithLifecycle()
+
+    // Collab invites, profile links and the Spotify sign-in coming back from the browser.
+    val link by Links.incoming.collectAsStateWithLifecycle()
+    LaunchedEffect(link) {
+        val l = link ?: return@LaunchedEffect
+        Links.incoming.value = null
+        when (l) {
+            is Links.Link.CollabInvite -> {
+                if (!app.account.state.value.signedIn) {
+                    actions.toast("Log in to Spitify to join shared playlists")
+                    actions.openAccount()
+                } else {
+                    runCatching { app.social.previewCollab(l.id) }
+                        .onSuccess { collabInvite = it }
+                        .onFailure { actions.toast(it.message ?: "Couldn't open that invite") }
+                }
+            }
+            is Links.Link.User -> actions.openProfile(l.name)
+            is Links.Link.SpotifyAuth -> {
+                runCatching { app.spotifyImport.finishSignIn(l.code, l.state, l.error) }
+                    .onSuccess {
+                        actions.toast("Signed in to Spotify")
+                        if (nav.currentBackStackEntry?.destination?.route?.endsWith("/${Dest.IMPORT}") == true) nav.popBackStack()
+                        actions.openImport()
+                    }
+                    .onFailure { actions.toast(it.message ?: "Spotify sign-in didn't finish") }
+            }
+        }
     }
     // Someone opened a Jam invite: load the host's songs and jump to where they are now.
     val invite by Jam.incoming.collectAsStateWithLifecycle()
@@ -202,7 +278,7 @@ fun SpitifyRoot(app: SpitifyApp) {
         LocalLyrics provides app.lyrics,
         LocalCatalog provides app.catalog,
         LocalActions provides actions,
-        LocalDataSaver provides settings.dataSaver,
+        LocalDataSaver provides com.srakim.spitify.ui.components.rememberDataSaver(settings),
         LocalBottomInset provides bottomInset,
         LocalContentWidth provides contentWidth,
     ) {
@@ -211,7 +287,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                 .fillMaxSize()
                 .background(SpitifyColors.Background),
         ) {
-            if (wide) NavRail(nav, onCreate = { createSheet = true })
+            if (wide) NavRail(nav, onCreate = { sheet = AppSheet.Create })
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 AppNavHost(nav)
 
@@ -236,6 +312,24 @@ fun SpitifyRoot(app: SpitifyApp) {
                             .background(Brush.verticalGradient(listOf(Color.Transparent, SpitifyColors.Base.copy(alpha = 0.85f), SpitifyColors.Base))),
                     ) {
                         Column {
+                            val jamHost = nearbyJams.firstOrNull { it !in hiddenJams }
+                            AnimatedVisibility(
+                                visible = jamHost != null && !hostingJam && playback.context?.id != "jam:$jamHost",
+                                enter = fadeIn(tween(Motion.MEDIUM)) + expandVertically(Motion.settle()),
+                                exit = fadeOut(tween(Motion.FAST)) + shrinkVertically(tween(Motion.MEDIUM)),
+                            ) {
+                                val host = jamHost ?: return@AnimatedVisibility
+                                NearbyJamBanner(
+                                    host = host,
+                                    onJoin = {
+                                        scope.launch {
+                                            if (joinFriendJam(app, host)) actions.toast("You're in $host's Jam") else actions.toast("That Jam has ended")
+                                        }
+                                        hiddenJams = hiddenJams + host
+                                    },
+                                    onDismiss = { hiddenJams = hiddenJams + host },
+                                )
+                            }
                             AnimatedVisibility(
                                 visible = playback.current != null,
                                 enter = slideInVertically(Motion.settle()) { it } + fadeIn(tween(Motion.MEDIUM)) + expandVertically(Motion.settle()),
@@ -244,7 +338,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                                 MiniPlayer(onOpen = { playerOpen = true })
                             }
                             if (wide) Spacer(Modifier.navigationBarsPadding().height(8.dp))
-                            else BottomBar(nav, onCreate = { createSheet = true })
+                            else BottomBar(nav, onCreate = { sheet = AppSheet.Create })
                         }
                     }
                 }
@@ -281,17 +375,125 @@ fun SpitifyRoot(app: SpitifyApp) {
         jamFor?.let { track ->
             JamSheet(track = track, onDismiss = { jamFor = null })
         }
+        dnaFor?.let { track ->
+            SongDnaSheet(track = track, onDismiss = { dnaFor = null })
+        }
+        if (sleepTimerOpen) SleepTimerSheet(onDismiss = { sleepTimerOpen = false })
         addToPlaylist?.let { track ->
             AddToPlaylistSheet(track = track, onDismiss = { addToPlaylist = null })
         }
-        if (createSheet) {
-            CreateSheet(
-                onDismiss = { createSheet = false },
-                onPlaylist = {
-                    createSheet = false
-                    createWithTrack = null
-                    createPlaylist = true
+        val closeSheet = { sheet = null }
+        when (val s = sheet) {
+            null -> Unit
+            AppSheet.ProfileDrawer -> ProfileDrawer(onDismiss = closeSheet)
+            AppSheet.Create -> CreateSheet(onDismiss = closeSheet, onPick = { option ->
+                sheet = null
+                when (option) {
+                    CreateOption.PLAYLIST -> {
+                        createWithTrack = null
+                        createPlaylist = true
+                    }
+                    CreateOption.COLLAB -> sheet = AppSheet.NewCollab()
+                    CreateOption.MIXED -> sheet = AppSheet.NewMixed
+                    CreateOption.BLEND -> sheet = AppSheet.BlendPicker
+                    CreateOption.AI -> sheet = AppSheet.AiPlaylist
+                    CreateOption.DJ -> sheet = AppSheet.Dj
+                    CreateOption.FOLDER -> sheet = AppSheet.NewFolder
+                    CreateOption.JAM -> {
+                        val track = app.player.state.value.current
+                        if (track == null) {
+                            actions.toast("Play something first, then start a Jam")
+                        } else {
+                            if (app.account.state.value.signedIn) app.nearby.startHosting(app.player, app.social, app.settings)
+                            jamFor = track
+                        }
+                    }
+                }
+            })
+            AppSheet.Connect -> ConnectSheet(onDismiss = closeSheet)
+            is AppSheet.SendTo -> SendToSheet(track = s.track, playlist = s.playlist, onDismiss = closeSheet)
+            AppSheet.AiPlaylist -> AiPlaylistSheet(onDismiss = closeSheet)
+            AppSheet.Dj -> DjSheet(onDismiss = closeSheet)
+            AppSheet.BlendPicker -> BlendPickerSheet(onDismiss = closeSheet)
+            is AppSheet.NewCollab -> {
+                if (!account.signedIn) {
+                    LaunchedEffect(s) {
+                        sheet = null
+                        actions.toast("Log in to Spitify to make playlists with friends")
+                        actions.openAccount()
+                    }
+                } else {
+                    CreatePlaylistDialog(
+                        onDismiss = closeSheet,
+                        title = "Name your collaborative playlist",
+                        initial = "Our playlist",
+                        onCreate = { name ->
+                            sheet = null
+                            scope.launch {
+                                runCatching { app.social.createCollab(name, listOfNotNull(s.withTrack)) }
+                                    .onSuccess { actions.openCollab(it.id) }
+                                    .onFailure { actions.toast(it.message ?: "Couldn't make that playlist") }
+                            }
+                        },
+                    )
+                }
+            }
+            AppSheet.NewMixed -> CreatePlaylistDialog(
+                onDismiss = closeSheet,
+                title = "Name your mixed playlist",
+                initial = "My mix",
+                onCreate = { name ->
+                    sheet = null
+                    val made = app.library.createPlaylist(name, mixed = true)
+                    actions.openMyPlaylist(made.id)
                 },
+            )
+            AppSheet.NewFolder -> CreatePlaylistDialog(
+                onDismiss = { sheet = null; pendingFolderMove = null },
+                title = "Name your folder",
+                initial = "New folder",
+                onCreate = { name ->
+                    sheet = null
+                    val folder = app.library.createFolder(name)
+                    val moving = pendingFolderMove
+                    pendingFolderMove = null
+                    if (moving != null) {
+                        app.library.moveToFolder(moving, folder.id)
+                        actions.toast("Moved to ${folder.name}")
+                    } else actions.openFolder(folder.id)
+                },
+            )
+            is AppSheet.MoveToFolder -> MoveToFolderSheet(
+                playlistId = s.playlistId,
+                onDismiss = closeSheet,
+                onNewFolder = {
+                    pendingFolderMove = s.playlistId
+                    sheet = AppSheet.NewFolder
+                },
+            )
+        }
+        collabInvite?.let { inv ->
+            AlertDialog(
+                onDismissRequest = { collabInvite = null },
+                containerColor = SpitifyColors.Elevated,
+                title = { Text("Join ${inv.name}?") },
+                text = {
+                    Text(
+                        "${inv.owner.displayName} invited you to add songs together. ${inv.tracks} songs, ${inv.members} ${if (inv.members == 1) "person" else "people"} so far.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        collabInvite = null
+                        scope.launch {
+                            runCatching { app.social.joinCollab(inv.id) }
+                                .onSuccess { actions.toast("You joined ${it.name}"); actions.openCollab(it.id) }
+                                .onFailure { actions.toast(it.message ?: "Couldn't join") }
+                        }
+                    }) { Text("Join", color = SpitifyColors.Accent) }
+                },
+                dismissButton = { TextButton(onClick = { collabInvite = null }) { Text("Not now", color = SpitifyColors.TextSecondary) } },
             )
         }
         if (createPlaylist) {
@@ -357,6 +559,17 @@ private fun AppNavHost(nav: NavHostController) {
             composable("$p/${Dest.LOCAL_FILES}") { LocalFilesScreen() }
             composable("$p/${Dest.SERVER}") { ServerScreen() }
             composable("$p/${Dest.ACCOUNT}") { AccountScreen() }
+            composable("$p/${Dest.SETTINGS_SECTION}") { SettingsScreen(it.arguments?.getString("id")) }
+            composable("$p/${Dest.IMPORT}") { ImportScreen() }
+            composable("$p/${Dest.STATS}") { StatsScreen() }
+            composable("$p/${Dest.UPDATES}") { UpdatesScreen() }
+            composable("$p/${Dest.MESSAGES}") { MessagesScreen() }
+            composable("$p/${Dest.CHAT}") { ChatScreen(it.arguments?.getString("name").orEmpty()) }
+            composable("$p/${Dest.FRIENDS}") { FriendsScreen() }
+            composable("$p/${Dest.PROFILE}") { ProfileScreen(it.arguments?.getString("name").orEmpty()) }
+            composable("$p/${Dest.COLLAB}") { CollabScreen(it.arguments?.getString("id").orEmpty()) }
+            composable("$p/${Dest.BLEND}") { BlendScreen(it.arguments?.getString("name").orEmpty()) }
+            composable("$p/${Dest.FOLDER}") { FolderScreen(it.arguments?.getString("id").orEmpty()) }
         }
     }
 }
@@ -460,5 +673,26 @@ private fun NavItem(label: String, icon: ImageVector, selected: Boolean, modifie
         )
         Spacer(Modifier.height(3.dp))
         Text(label, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing), color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** "alex is hosting a Jam nearby" with Join, shown when another Spitify phone on this Wi-Fi is hosting. */
+@Composable
+private fun NearbyJamBanner(host: String, onJoin: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(SpitifyColors.AccentDeep)
+            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("$host is hosting a Jam nearby", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Listen along on this phone", style = MaterialTheme.typography.bodySmall, color = SpitifyColors.TextSecondary)
+        }
+        TextButton(onClick = onDismiss) { Text("Not now", color = SpitifyColors.TextSecondary) }
+        TextButton(onClick = onJoin) { Text("Join", color = SpitifyColors.Accent) }
     }
 }

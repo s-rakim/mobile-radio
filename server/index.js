@@ -4,6 +4,7 @@ const cors = require('cors');
 const { request } = require('undici');
 const catalogs = require('./services/catalogs');
 const accounts = require('./services/accounts');
+const social = require('./services/social');
 const youtubeRunner = require('./services/youtubeRunner');
 const { getTrack, refetch, invalidate, searchSoundCloud } = youtubeRunner;
 
@@ -67,6 +68,74 @@ app.put('/api/library', signedIn, (req, res) => {
   if (!req.body || typeof req.body.library !== 'object') return res.status(400).json({ error: 'Missing library' });
   res.json({ updatedAt: accounts.putLibrary(req.user, req.body.library, req.body.updatedAt) });
 });
+
+// ---- Social: friends, activity, messages, collaborative playlists, Blend, stats ----
+// Only between accounts on this server. See services/social.js.
+
+function socialRoute(action) {
+  return (req, res) => {
+    try {
+      res.json(action(req));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.status ? err.message : 'Something went wrong' });
+    }
+  };
+}
+
+app.get('/api/social/me', signedIn, socialRoute((req) => social.friends(req.user)));
+app.put('/api/social/profile', signedIn, socialRoute((req) => social.updateProfile(req.user, req.body || {})));
+app.get('/api/users/search', signedIn, socialRoute((req) => social.searchUsers(req.user, req.query.q)));
+app.get('/api/users/:name', signedIn, socialRoute((req) => social.profile(String(req.params.name).toLowerCase())));
+app.get('/api/friends', signedIn, socialRoute((req) => social.friends(req.user)));
+app.post('/api/friends/:name', signedIn, socialRoute((req) => social.follow(req.user, req.params.name)));
+app.delete('/api/friends/:name', signedIn, socialRoute((req) => social.unfollow(req.user, req.params.name)));
+app.put('/api/activity', signedIn, socialRoute((req) => social.setNowPlaying(req.user, req.body)));
+app.put('/api/stats', signedIn, socialRoute((req) => social.putStats(req.user, req.body)));
+app.get('/api/stats/friends', signedIn, socialRoute((req) => social.friendStats(req.user, String(req.query.week || ''))));
+app.get('/api/messages', signedIn, socialRoute((req) => social.conversations(req.user)));
+app.get('/api/messages/:name', signedIn, socialRoute((req) => social.messagesWith(req.user, req.params.name)));
+app.post('/api/messages/:name', signedIn, socialRoute((req) => social.send(req.user, req.params.name, req.body || {})));
+app.post('/api/messages/:name/:id/react', signedIn, socialRoute((req) => social.react(req.user, req.params.name, req.params.id, req.body?.emoji)));
+app.get('/api/collab', signedIn, socialRoute((req) => social.myCollabs(req.user)));
+app.post('/api/collab', signedIn, socialRoute((req) => social.createCollab(req.user, req.body || {})));
+app.get('/api/collab/:id/preview', signedIn, socialRoute((req) => social.previewCollab(req.params.id)));
+app.get('/api/collab/:id', signedIn, socialRoute((req) => social.getCollab(req.user, req.params.id)));
+app.put('/api/collab/:id', signedIn, socialRoute((req) => social.renameCollab(req.user, req.params.id, req.body?.name)));
+app.post('/api/collab/:id/join', signedIn, socialRoute((req) => social.joinCollab(req.user, req.params.id)));
+app.post('/api/collab/:id/leave', signedIn, socialRoute((req) => social.leaveCollab(req.user, req.params.id)));
+app.post('/api/collab/:id/tracks', signedIn, socialRoute((req) => social.addToCollab(req.user, req.params.id, req.body?.track)));
+app.delete('/api/collab/:id/tracks/:trackId', signedIn, socialRoute((req) => social.removeFromCollab(req.user, req.params.id, req.params.trackId)));
+app.put('/api/jam', signedIn, socialRoute((req) => social.hostJam(req.user, req.body)));
+app.delete('/api/jam', signedIn, socialRoute((req) => social.endJam(req.user)));
+app.get('/api/jam/:name', signedIn, socialRoute((req) => social.jamOf(req.params.name)));
+app.get('/api/blend/:name', signedIn, socialRoute((req) => social.blend(req.user, req.params.name)));
+
+// ---- AI Playlist and AI DJ. See services/aiDj.js for the keys it needs. ----
+// Signed-in only, and rate limited per account, so nobody else spends your AI credit.
+
+const aiDj = require('./services/aiDj');
+const aiUse = new Map();
+function aiLimited(user) {
+  const now = Date.now();
+  const recent = (aiUse.get(user) || []).filter((t) => now - t < 60 * 60 * 1000);
+  recent.push(now);
+  aiUse.set(user, recent);
+  return recent.length > Number(process.env.AI_HOURLY_LIMIT || 60);
+}
+function aiRoute(action) {
+  return async (req, res) => {
+    if (aiLimited(req.user)) return res.status(429).json({ error: 'The DJ needs a break, try again in a bit' });
+    try {
+      res.json(await action(req.body || {}));
+    } catch (err) {
+      console.warn('AI route failed:', err.message);
+      res.status(err.status && err.status < 500 ? err.status : 502).json({ error: err.status === 400 ? err.message : "The DJ couldn't put that together right now" });
+    }
+  };
+}
+app.get('/api/ai/status', signedIn, (req, res) => res.json(aiDj.status()));
+app.post('/api/ai/playlist', signedIn, aiRoute((body) => aiDj.playlist(body)));
+app.post('/api/ai/dj', signedIn, aiRoute((body) => aiDj.dj(body)));
 
 for (const [name, [search, empty]] of Object.entries(catalogs)) {
   app.get(`/api/${name}`, async (req, res) => {

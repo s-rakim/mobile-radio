@@ -12,6 +12,10 @@ services:
       - DATA_DIR=/data
       # set to false once everyone who needs an account has one
       - ALLOW_SIGNUPS=${ALLOW_SIGNUPS:-true}
+      # AI Playlist and AI DJ. Leave blank to run the rules-only DJ.
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.openai.com/v1}
     volumes:
       # accounts and saved libraries, kept across rebuilds
       - spitify-data:/data

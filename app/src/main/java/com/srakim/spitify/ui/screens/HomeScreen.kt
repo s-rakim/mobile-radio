@@ -1,6 +1,8 @@
 package com.srakim.spitify.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -134,7 +136,7 @@ fun HomeScreen() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ProfileBadge(onClick = actions::openSettings)
+                ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                 Spacer(Modifier.width(2.dp))
                 HomeFilter.entries.forEach { f ->
                     Pill(f.label, selected = filter == f, onClick = { filter = if (filter == f && f != HomeFilter.ALL) HomeFilter.ALL else f })
@@ -169,6 +171,8 @@ fun HomeScreen() {
         val showMusic = filter == HomeFilter.ALL || filter == HomeFilter.MUSIC
         val showPlaylists = filter == HomeFilter.ALL || filter == HomeFilter.PLAYLISTS
         val showArtists = filter == HomeFilter.ALL || filter == HomeFilter.ARTISTS
+
+        if (showMusic) item { DjCard(playingDj = playback.context?.id == com.srakim.spitify.data.AiDj.CONTEXT_ID) }
 
         // Mixes for the genres you actually play come first; the rest fill in behind.
         val madeForYou = lib.tasteGenres().let { taste ->
@@ -390,4 +394,43 @@ private fun greeting(name: String): String {
         else -> "Good evening"
     }
     return if (name.isBlank()) base else "$base, ${name.trim()}"
+}
+
+/** The DJ on Home: one tap starts a set picked from what you play, the arrow takes requests. */
+@Composable
+private fun DjCard(playingDj: Boolean) {
+    val app = com.srakim.spitify.ui.LocalApp.current
+    val actions = LocalActions.current
+    val dj by app.dj.state.collectAsStateWithLifecycle()
+    Row(
+        Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 20.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Brush.horizontalGradient(listOf(SpitifyColors.AccentDeep, SpitifyColors.Elevated)))
+            .clickable {
+                if (playingDj) actions.openPlayer() else {
+                    app.dj.play()
+                    actions.toast("Your DJ is picking a set")
+                }
+            }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("DJ", style = MaterialTheme.typography.titleLarge)
+            Text(
+                when {
+                    dj.busy -> "Digging for the next few songs…"
+                    playingDj -> "On air. Tap to see what's playing."
+                    else -> "A set picked for you that keeps going. Ask it for a vibe anytime."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = SpitifyColors.TextSecondary,
+            )
+        }
+        TextButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Dj) }) {
+            Text("Request", color = SpitifyColors.Accent)
+        }
+    }
 }

@@ -158,6 +158,7 @@ fun CollectionActions(
     val actions = LocalActions.current
     val playback by player.state.collectAsStateWithLifecycle()
     val dl by downloads.state.collectAsStateWithLifecycle()
+    val offlineAccess = com.srakim.spitify.ui.LocalSettings.current.state.collectAsStateWithLifecycle().value.offlineAccess
     var menuOpen by remember { mutableStateOf(false) }
 
     val playingHere = playback.isPlayingFrom(context.id)
@@ -175,7 +176,7 @@ fun CollectionActions(
                 )
             }
         }
-        IconButton(
+        if (offlineAccess) IconButton(
             onClick = {
                 when {
                     allDownloaded -> {

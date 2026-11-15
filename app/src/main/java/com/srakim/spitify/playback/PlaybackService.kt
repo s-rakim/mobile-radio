@@ -11,7 +11,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.ChannelMixingAudioProcessor
+import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.metadata.MetadataRenderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -19,6 +27,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.srakim.spitify.MainActivity
 import com.srakim.spitify.SpitifyApp
+import com.srakim.spitify.data.MixPlan
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.DownloadStore
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +45,11 @@ import java.util.concurrent.TimeUnit
  * Also applies the audio settings: equaliser, volume level and crossfade.
  */
 class PlaybackService : MediaSessionService() {
+
+    private companion object {
+        /** How long Automix fades last when crossfade itself is off. */
+        const val AUTOMIX_MS = 6_000L
+    }
 
     private var session: MediaSession? = null
     private var effects: AudioEffects? = null
@@ -55,8 +69,23 @@ class PlaybackService : MediaSessionService() {
             .readTimeout(90, TimeUnit.SECONDS)
             .build()
         val network = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(playerHttp))
-        val dataSource = FallbackDataSource.Factory(network)
-        val player = ExoPlayer.Builder(this)
+        // SoundCloud stream addresses are signed and short-lived, so they're fetched right before playback.
+        val resolving = androidx.media3.datasource.ResolvingDataSource.Factory(network) { spec ->
+            if (spec.uri.scheme == com.srakim.spitify.data.SoundCloudApi.SCHEME) spec.withUri(app.soundCloud.resolveStreamBlocking(spec.uri)) else spec
+        }
+        val dataSource = FallbackDataSource.Factory(resolving)
+        // Only the renderers a music app needs: audio (through our own sink, so mono audio can be
+        // mixed in) and metadata, which carries what a radio station says is on air.
+        val mixer = ChannelMixingAudioProcessor()
+        applyMono(mixer, app.settings.current.monoAudio)
+        val renderers = RenderersFactory { handler, _, audioListener, _, metadataOutput ->
+            val sink = DefaultAudioSink.Builder(this).setAudioProcessors(arrayOf<AudioProcessor>(mixer)).build()
+            arrayOf(
+                MediaCodecAudioRenderer(this, MediaCodecSelector.DEFAULT, handler, audioListener, sink),
+                MetadataRenderer(metadataOutput, handler.looper),
+            )
+        }
+        val player = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSource))
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -88,7 +117,13 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         scope.launch {
-            app.settings.state.collect { fx.apply(it) }
+            app.settings.state.collect {
+                fx.apply(it)
+                // "Gapless playback" trims silence at the ends of songs (and long pauses inside them).
+                if (player.skipSilenceEnabled != it.gapless) player.skipSilenceEnabled = it.gapless
+                // Picked up by the audio sink from the next song on.
+                applyMono(mixer, it.monoAudio)
+            }
         }
         scope.launch { runFades(player, app) }
     }
@@ -102,7 +137,13 @@ class PlaybackService : MediaSessionService() {
             delay(100)
             val settings = app.settings.current
             val base = AudioEffects.baseVolume(settings.volumeLevel)
-            val fadeMs = settings.crossfadeSeconds * 1000L
+            // Automix: mixed playlists, genre mixes and radio fade into each other even with crossfade off.
+            val ctx = app.player.state.value.context?.id.orEmpty()
+            val mixedPlaylist = ctx.startsWith("mine:") &&
+                app.library.state.value.playlists.any { it.id == ctx.removePrefix("mine:") && it.mixed }
+            val djSet = ctx == "dj" || ctx.startsWith("ai:")
+            val automix = settings.automix && (mixedPlaylist || djSet || ctx.startsWith("mix:") || ctx.startsWith("radio:"))
+            val fadeMs = maxOf(settings.crossfadeSeconds * 1000L, if (automix) AUTOMIX_MS else 0L)
             if (fadeMs <= 0 || !player.isPlaying) {
                 if (player.volume != base) player.volume = base
                 continue
@@ -110,14 +151,31 @@ class PlaybackService : MediaSessionService() {
             val duration = player.duration
             val position = player.currentPosition
             if (duration == C.TIME_UNSET || duration <= 0) continue
-            val window = minOf(fadeMs, duration / 3)
+            // DJ sets carry a fade length per transition: long blends where tempo and key line up,
+            // a near-cut on a big drop.
+            val nextId = if (player.hasNextMediaItem()) player.getMediaItemAt(player.nextMediaItemIndex).mediaId else null
+            val inMs = (if (automix && djSet) MixPlan.fadeMs(player.currentMediaItem?.mediaId) else null) ?: fadeMs
+            val outMs = (if (automix && djSet) MixPlan.fadeMs(nextId) else null) ?: fadeMs
+            val inWindow = minOf(inMs, duration / 3).coerceAtLeast(1)
+            val outWindow = minOf(outMs, duration / 3).coerceAtLeast(1)
             val remaining = duration - position
             val factor = when {
-                position < window -> position.toFloat() / window
-                remaining < window && player.hasNextMediaItem() -> remaining.toFloat() / window
+                position < inWindow -> position.toFloat() / inWindow
+                remaining < outWindow && player.hasNextMediaItem() -> remaining.toFloat() / outWindow
                 else -> 1f
             }.coerceIn(0.05f, 1f)
             player.volume = base * factor
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun applyMono(mixer: ChannelMixingAudioProcessor, mono: Boolean) {
+        if (mono) {
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix(1, 2, floatArrayOf(1f, 1f)))
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix(2, 2, floatArrayOf(0.5f, 0.5f, 0.5f, 0.5f)))
+        } else {
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix.create(1, 2))
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix.create(2, 2))
         }
     }
 

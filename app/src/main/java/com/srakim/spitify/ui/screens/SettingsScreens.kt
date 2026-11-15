@@ -67,6 +67,9 @@ import com.srakim.spitify.BuildConfig
 import com.srakim.spitify.data.AppUpdater
 import com.srakim.spitify.data.AppSettings
 import com.srakim.spitify.data.VolumeLevel
+import com.srakim.spitify.data.DataSaverMode
+import com.srakim.spitify.data.Quality
+import com.srakim.spitify.data.ShuffleStyle
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApp
 import com.srakim.spitify.ui.LocalBottomInset
@@ -157,8 +160,146 @@ private fun spitifySliderColors() = SliderDefaults.colors(
     inactiveTickColor = Color.Transparent,
 )
 
+/** One of the pages under Settings, in the order the hub lists them. */
+enum class SettingsSection(val id: String, val title: String, val subtitle: String) {
+    ACCOUNT("account", "Account", "Name, Spitify account, server address"),
+    CONTENT("content", "Content and display", "App icon, theme, lyrics"),
+    PRIVACY("privacy", "Privacy and social", "Private session, listening activity, history"),
+    PLAYBACK("playback", "Playback", "Gapless playback, Automix, crossfade, shuffle, volume"),
+    NOTIFICATIONS("notifications", "Notifications", "Messages, followers, shared playlists"),
+    DEVICES("devices", "Apps and devices", "Spotify import, music sources, local files, Jams"),
+    DATA("data", "Data-saving and offline", "Data saver, offline mode, downloads, storage"),
+    QUALITY("quality", "Media quality", "Wi-Fi and cellular quality"),
+    ABOUT("about", "About and support", "Version, updates, where the music comes from"),
+    ;
+
+    companion object {
+        fun of(id: String?) = entries.firstOrNull { it.id == id }
+    }
+}
+
+/** Settings: the hub with quick tiles and the section list, or one section when [section] is set. */
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(section: String? = null) {
+    val page = SettingsSection.of(section)
+    if (page == null) SettingsHub() else SettingsSectionPage(page)
+}
+
+@Composable
+private fun SettingsHub() {
+    val store = LocalSettings.current
+    val actions = LocalActions.current
+    val app = LocalApp.current
+    val settings by store.state.collectAsStateWithLifecycle()
+    val acct by app.account.state.collectAsStateWithLifecycle()
+    var confirmLogout by remember { mutableStateOf(false) }
+
+    SettingsPage("Settings") {
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                QuickTile(
+                    "Data saver mode",
+                    settings.dataSaverMode.label,
+                    on = settings.dataSaverMode != DataSaverMode.OFF,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    val next = when (settings.dataSaverMode) {
+                        DataSaverMode.OFF -> DataSaverMode.AUTO
+                        DataSaverMode.AUTO -> DataSaverMode.ON
+                        DataSaverMode.ON -> DataSaverMode.OFF
+                    }
+                    store.update { it.copy(dataSaverMode = next) }
+                }
+                QuickTile("Offline mode", if (settings.offlineMode) "On" else "Off", settings.offlineMode, Modifier.weight(1f)) {
+                    store.update { it.copy(offlineMode = !it.offlineMode) }
+                    actions.toast(if (!settings.offlineMode) "Offline mode on. Only downloads will play." else "You're back online")
+                }
+                QuickTile("Private session", if (settings.privateSession) "On" else "Off", settings.privateSession, Modifier.weight(1f)) {
+                    store.update { it.copy(privateSession = !it.privateSession) }
+                }
+            }
+        }
+        SettingsSection.entries.forEach { s ->
+            item(key = s.id) { SettingRow(s.title, s.subtitle, onClick = { actions.openSettingsSection(s.id) }) }
+        }
+        item {
+            Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
+                if (acct.signedIn) {
+                    Box(
+                        Modifier
+                            .clip(CircleShape)
+                            .background(SpitifyColors.TextPrimary)
+                            .clickable { confirmLogout = true }
+                            .padding(horizontal = 32.dp, vertical = 12.dp),
+                    ) { Text("Log out", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.Background) }
+                } else {
+                    Box(
+                        Modifier
+                            .clip(CircleShape)
+                            .background(SpitifyColors.Accent)
+                            .clickable { actions.openAccount() }
+                            .padding(horizontal = 32.dp, vertical = 12.dp),
+                    ) { Text("Log in", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.OnAccent) }
+                }
+            }
+        }
+    }
+
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Log out?") },
+            text = { Text("Your library stays on this phone and on your Spitify server. Friends, messages and Jams need you to log back in.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    app.account.signOut()
+                    confirmLogout = false
+                    actions.toast("Logged out")
+                }) { Text("Log out", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+}
+
+@Composable
+private fun QuickTile(title: String, value: String, on: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (on) SpitifyColors.Accent.copy(alpha = 0.18f) else SpitifyColors.Elevated)
+            .clickable(onClick = onClick)
+            .heightIn(min = 84.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 2)
+        Spacer(Modifier.height(8.dp))
+        Text(value, style = MaterialTheme.typography.bodySmall, color = if (on) SpitifyColors.Accent else SpitifyColors.TextSecondary)
+    }
+}
+
+@Composable
+private fun <T> RadioRow(label: String, description: String?, value: T, selected: T, onSelect: (T) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onSelect(value) }.padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (description != null) Text(description, style = MaterialTheme.typography.bodySmall)
+        }
+        RadioButton(selected = value == selected, onClick = { onSelect(value) }, colors = RadioButtonDefaults.colors(selectedColor = SpitifyColors.Accent))
+    }
+}
+
+@Composable
+private fun SettingsSectionPage(page: SettingsSection) {
+    val app = LocalApp.current
     val store = LocalSettings.current
     val library = LocalLibrary.current
     val downloads = LocalDownloads.current
@@ -169,11 +310,13 @@ fun SettingsScreen() {
     val dl by downloads.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     val lib by library.state.collectAsStateWithLifecycle()
+    val acct by app.account.state.collectAsStateWithLifecycle()
 
     var editingName by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf(false) }
     var editingWeb by remember { mutableStateOf(false) }
-    val updater = LocalApp.current.updater
+    var editingSpotifyId by remember { mutableStateOf(false) }
+    val updater = app.updater
     val updateStatus by updater.status.collectAsStateWithLifecycle()
     val catalog = LocalCatalog.current
     val scope = rememberCoroutineScope()
@@ -197,257 +340,431 @@ fun SettingsScreen() {
         localGranted = ok
         if (ok) scope.launch { catalog.local.refresh() } else actions.toast("Spitify can't see your music without that permission")
     }
-    var volumePicker by remember { mutableStateOf(false) }
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (!ok) actions.toast("Notifications are off for Spitify in Android settings")
+    }
     var confirmClearDownloads by remember { mutableStateOf(false) }
+    var confirmOfflineAccessOff by remember { mutableStateOf(false) }
     var storageTick by remember { mutableIntStateOf(0) }
     val downloadBytes = remember(dl.downloaded.size, storageTick) { downloads.bytesUsed() }
     var cacheBytes by remember { mutableLongStateOf(0L) }
+    var disk by remember { mutableStateOf(0L to 0L) }
     androidx.compose.runtime.LaunchedEffect(storageTick) {
-        cacheBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            disk = runCatching {
+                val fs = android.os.StatFs(context.filesDir.absolutePath)
+                fs.totalBytes to fs.availableBytes
+            }.getOrDefault(0L to 0L)
         }
     }
 
     fun set(block: (AppSettings) -> AppSettings) = store.update(block)
 
-    SettingsPage("Settings") {
-        item {
-            Row(
-                Modifier.fillMaxWidth().clickable { editingName = true }.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(56.dp).clip(CircleShape).background(SpitifyColors.Accent), contentAlignment = Alignment.Center) {
+    fun needNotifyPermission(): Boolean = android.os.Build.VERSION.SDK_INT >= 33 &&
+        androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    SettingsPage(page.title) {
+        when (page) {
+            SettingsSection.ACCOUNT -> {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { editingName = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(56.dp).clip(CircleShape).background(SpitifyColors.Accent), contentAlignment = Alignment.Center) {
+                            Text(
+                                settings.profileName.trim().firstOrNull()?.uppercase() ?: acct.username?.firstOrNull()?.uppercase() ?: "S",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = SpitifyColors.OnAccent,
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(settings.profileName.ifBlank { acct.username ?: "Your profile" }, style = MaterialTheme.typography.titleMedium)
+                            Text("Edit name. Friends see it too.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
+                    }
+                }
+                item {
+                    SettingRow(
+                        if (acct.signedIn) "Signed in as ${acct.username}" else "Log in or sign up",
+                        if (acct.signedIn) "Your playlists, likes, friends and messages live on your Spitify server" else "Keep your library on your Spitify server and unlock friends, messages, Blends and Jams",
+                        onClick = actions::openAccount,
+                    )
+                }
+                item {
+                    SettingRow(
+                        "Spitify server address",
+                        settings.webServerUrl.ifBlank { BuildConfig.DEFAULT_SERVER_URL.ifBlank { "Not set" } } + (webStatus?.let { ". $it" } ?: ""),
+                        onClick = { editingWeb = true },
+                    )
+                }
+                if (acct.signedIn) {
+                    item {
+                        SettingRow("Share your profile", "Send friends a link that opens your profile in Spitify", onClick = {
+                            val text = "Follow me on Spitify, I'm ${acct.username} there: spitify://user/${acct.username}"
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share profile"))
+                        })
+                    }
+                }
+            }
+
+            SettingsSection.CONTENT -> {
+                item { AppIconPicker() }
+                item {
+                    SettingRow("Theme", SpitifyColors.palette.name, onClick = actions::openThemes) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(18.dp).clip(CircleShape).background(SpitifyColors.Accent))
+                            Spacer(Modifier.width(8.dp))
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
+                        }
+                    }
+                }
+                item {
+                    ToggleRow("Show lyrics", "Show lyrics on the player when they're available.", settings.showLyrics) { v -> set { it.copy(showLyrics = v) } }
+                }
+            }
+
+            SettingsSection.PRIVACY -> {
+                item {
+                    ToggleRow(
+                        "Private session",
+                        "Listen without adding to your history, stats or friend activity. Ends when you turn it off.",
+                        settings.privateSession,
+                    ) { v -> set { it.copy(privateSession = v) } }
+                }
+                item {
+                    ToggleRow(
+                        "Share my listening activity",
+                        "People who follow you on Spitify can see what you're playing.",
+                        settings.shareActivity,
+                    ) { v ->
+                        set { it.copy(shareActivity = v) }
+                        if (acct.signedIn) scope.launch { runCatching { app.social.updateProfile(activity = v) } }
+                    }
+                }
+                item {
+                    SettingRow("Clear listening history", "${lib.recentTracks.size} songs in Recents", onClick = {
+                        library.clearHistory()
+                        actions.toast("Listening history cleared")
+                    })
+                }
+                item {
+                    SettingRow("Clear recent searches", onClick = {
+                        library.clearRecentSearches()
+                        actions.toast("Recent searches cleared")
+                    })
+                }
+                item {
+                    SettingRow("Reset listening stats", "Minutes, top songs and top artists kept on this phone", onClick = {
+                        app.stats.clear()
+                        actions.toast("Listening stats reset")
+                    })
+                }
+                item {
+                    SettingRow("Songs left out of your taste profile", "${lib.tasteExcluded.size} songs. They don't steer recommendations.")
+                }
+            }
+
+            SettingsSection.PLAYBACK -> {
+                item {
+                    ToggleRow("Gapless playback", "Trims the silence between songs so one flows straight into the next.", settings.gapless) { v -> set { it.copy(gapless = v) } }
+                }
+                item {
+                    ToggleRow("Automix", "Smooth transitions between songs on mixed playlists, genre mixes, radio and the DJ.", settings.automix) { v -> set { it.copy(automix = v) } }
+                }
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Crossfade", style = MaterialTheme.typography.bodyLarge)
+                        Text("Fades the end of each song into the next one.", style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("0s", style = MaterialTheme.typography.labelMedium)
+                            Slider(
+                                value = settings.crossfadeSeconds.toFloat(),
+                                onValueChange = { v -> set { it.copy(crossfadeSeconds = v.toInt()) } },
+                                valueRange = 0f..12f,
+                                steps = 11,
+                                colors = spitifySliderColors(),
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                            )
+                            Text("${settings.crossfadeSeconds}s", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                item {
+                    ToggleRow("Autoplay", "Keep listening to similar songs when your music ends.", settings.autoplay) { v -> set { it.copy(autoplay = v) } }
+                }
+                item {
+                    ToggleRow("Mono audio", "Plays the same sound through both speakers or earbuds.", settings.monoAudio) { v -> set { it.copy(monoAudio = v) } }
+                }
+                item {
+                    ToggleRow(
+                        "Device broadcast status",
+                        "Lets other apps on this phone, like scrobblers and widgets, see what you're listening to.",
+                        settings.broadcastStatus,
+                    ) { v -> set { it.copy(broadcastStatus = v) } }
+                }
+                item { SettingRow("Equalizer", if (settings.equalizerEnabled) "On" else "Off", onClick = actions::openEqualizer) }
+                item {
+                    ToggleRow("DJ voice", "The AI DJ says a line on air when it changes things up.", settings.djVoice) { v -> set { it.copy(djVoice = v) } }
+                }
+                group("Shuffle")
+                item {
+                    ToggleRow(
+                        "Smart Shuffle",
+                        "Adds Smart Shuffle to the shuffle button. It mixes in songs that suit what you're playing.",
+                        settings.smartShuffle,
+                    ) { v -> set { it.copy(smartShuffle = v) } }
+                }
+                ShuffleStyle.entries.forEach { style ->
+                    item(key = "shuffle:${style.name}") {
+                        RadioRow(style.label, style.description, style, settings.shuffleStyle) { v -> set { it.copy(shuffleStyle = v) } }
+                    }
+                }
+                group("Volume")
+                item {
+                    ToggleRow(
+                        "Volume normalization",
+                        "Sets the same volume level for all songs and podcasts.",
+                        settings.volumeNormalization,
+                    ) { v -> set { it.copy(volumeNormalization = v) } }
+                }
+                VolumeLevel.entries.forEach { level ->
+                    item(key = "volume:${level.name}") {
+                        RadioRow(level.label, level.description, level, settings.volumeLevel) { v -> set { it.copy(volumeLevel = v) } }
+                    }
+                }
+                group("Sleep timer")
+                item {
+                    SettingRow(
+                        "Sleep timer",
+                        when {
+                            playback.sleepAtTrackEnd -> "Stops at the end of this song"
+                            playback.sleepTimerEndsAt != null -> "On"
+                            playback.current == null -> "Play something to set one"
+                            else -> "Off"
+                        },
+                        onClick = if (playback.current != null) actions.showSleepTimer else null,
+                    )
+                }
+            }
+
+            SettingsSection.NOTIFICATIONS -> {
+                item {
                     Text(
-                        settings.profileName.trim().firstOrNull()?.uppercase() ?: "S",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = SpitifyColors.OnAccent,
+                        "Spitify checks in with your Spitify server while the app is open and lets you know about these.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(settings.profileName.ifBlank { "Your profile" }, style = MaterialTheme.typography.titleMedium)
-                    Text("Edit name", style = MaterialTheme.typography.bodySmall)
+                item {
+                    ToggleRow("Messages", "When a friend sends you a song, a playlist or a message.", settings.notifyMessages) { v ->
+                        set { it.copy(notifyMessages = v) }
+                        if (v && needNotifyPermission()) askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
                 }
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
-            }
-        }
-
-        group("Account")
-        item {
-            val acct by LocalApp.current.account.state.collectAsStateWithLifecycle()
-            SettingRow(
-                if (acct.signedIn) "Signed in as ${acct.username}" else "Log in",
-                if (acct.signedIn) "Your playlists and likes are saved on your server" else "Save your playlists and likes to your Spitify server",
-                onClick = actions::openAccount,
-            )
-        }
-
-        group("Content and display")
-        item { AppIconPicker() }
-        item {
-            SettingRow("Theme", SpitifyColors.palette.name, onClick = actions::openThemes) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(18.dp).clip(CircleShape).background(SpitifyColors.Accent))
-                    Spacer(Modifier.width(8.dp))
-                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
+                item {
+                    ToggleRow("New followers", "When someone follows you.", settings.notifyFollows) { v ->
+                        set { it.copy(notifyFollows = v) }
+                        if (v && needNotifyPermission()) askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                item {
+                    ToggleRow("Collaborative playlists", "When friends add songs to a playlist you share.", settings.notifyCollab) { v ->
+                        set { it.copy(notifyCollab = v) }
+                        if (v && needNotifyPermission()) askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                item {
+                    SettingRow("Android notification settings", "Sound, vibration and the lock screen", onClick = {
+                        val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        runCatching { context.startActivity(intent) }
+                    })
                 }
             }
-        }
-        item {
-            ToggleRow("Show lyrics", "Show lyrics on the player when they're available.", settings.showLyrics) { v -> set { it.copy(showLyrics = v) } }
-        }
 
-        group("Playback")
-        item {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Crossfade", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "Fades the end of each song into the next one.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("0s", style = MaterialTheme.typography.labelMedium)
-                    Slider(
-                        value = settings.crossfadeSeconds.toFloat(),
-                        onValueChange = { v -> set { it.copy(crossfadeSeconds = v.toInt()) } },
-                        valueRange = 0f..12f,
-                        steps = 11,
-                        colors = spitifySliderColors(),
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            SettingsSection.DEVICES -> {
+                item {
+                    SettingRow(
+                        "Import from Spotify",
+                        "Bring your Spotify playlists and Liked Songs into Spitify",
+                        onClick = actions::openImport,
                     )
-                    Text("${settings.crossfadeSeconds}s", style = MaterialTheme.typography.labelMedium)
+                }
+                item {
+                    SettingRow(
+                        "Spotify app id",
+                        settings.spotifyClientId.ifBlank { BuildConfig.SPOTIFY_CLIENT_ID.ifBlank { "Not set. Needed to sign in to Spotify for imports." } }
+                            .let { if (it.length > 24) it.take(8) + "…" else it },
+                        onClick = { editingSpotifyId = true },
+                    )
+                }
+                group("Connect")
+                item {
+                    ToggleRow(
+                        "Auto-invite people nearby to a Jam",
+                        "While you host a Jam, phones with Spitify open on the same Wi-Fi get an invite to join.",
+                        settings.autoInviteNearby,
+                    ) { v ->
+                        set { it.copy(autoInviteNearby = v) }
+                        app.nearby.setAutoInvite(v, app.social.myName)
+                    }
+                }
+                item { SettingRow("Speakers and headphones", "Pick where your music plays", onClick = { com.srakim.spitify.playback.OutputDevice.openPicker(context) }) }
+                group("Music sources")
+                item { SettingRow("Audius", "Always on. The main catalogue.") }
+                item {
+                    SettingRow(
+                        "Your server",
+                        when {
+                            settings.subsonicUrl.isBlank() -> "Play your own collection from Navidrome or any Subsonic server."
+                            else -> settings.subsonicUrl + (serverStatus?.let { ". $it" } ?: "")
+                        },
+                        onClick = { editingServer = true },
+                    )
+                }
+                if (settings.subsonicUrl.isNotBlank()) {
+                    item {
+                        ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
+                    }
+                }
+                item {
+                    ToggleRow(
+                        "Spitify server results",
+                        "Adds YouTube, Internet Archive, ccMixter and Jamendo to Search from your Spitify server.",
+                        settings.webServerEnabled,
+                    ) { v -> set { it.copy(webServerEnabled = v) } }
+                }
+                group("Local files")
+                item {
+                    ToggleRow(
+                        "Show audio files from this device",
+                        when {
+                            !settings.showLocalFiles -> "Off"
+                            !localGranted -> "Tap to let Spitify see the music on your phone."
+                            else -> "${localTracks.size} songs found. They show up in Your Library and Search."
+                        },
+                        settings.showLocalFiles,
+                    ) { v ->
+                        set { it.copy(showLocalFiles = v) }
+                        if (v && !catalog.local.hasPermission()) askLocal.launch(LocalMusic.PERMISSION)
+                    }
+                }
+                if (settings.showLocalFiles && localGranted) {
+                    item { SettingRow("Scan again", "Look for songs added since the last scan.", onClick = { scope.launch { catalog.local.refresh() } }) }
                 }
             }
-        }
-        item {
-            SettingRow("Gapless playback", "Songs flow into each other with no silence. Always on.")
-        }
-        item {
-            ToggleRow(
-                "Autoplay",
-                "Keep listening to similar songs when your music ends.",
-                settings.autoplay,
-            ) { v -> set { it.copy(autoplay = v) } }
-        }
-        item {
-            SettingRow("Sleep timer", playback.sleepTimerEndsAt?.let { "On" } ?: "Set it from the player's menu")
-        }
 
-        group("Music sources")
-        item { SettingRow("Audius", "Always on. The main catalogue.") }
-        item {
-            SettingRow(
-                "Your server",
-                when {
-                    settings.subsonicUrl.isBlank() -> "Play your own collection from Navidrome or any Subsonic server."
-                    else -> settings.subsonicUrl + (serverStatus?.let { ". $it" } ?: "")
-                },
-                onClick = { editingServer = true },
-            )
-        }
-        if (settings.subsonicUrl.isNotBlank()) {
-            item {
-                ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
+            SettingsSection.DATA -> {
+                group("Data saver mode")
+                DataSaverMode.entries.forEach { mode ->
+                    item(key = "saver:${mode.name}") {
+                        RadioRow(mode.label, mode.description, mode, settings.dataSaverMode) { v -> set { it.copy(dataSaverMode = v) } }
+                    }
+                }
+                item {
+                    Text(
+                        "Data saver loads smaller artwork, streams at lower quality where the source offers it, and holds off on preloading.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                group("Offline")
+                item {
+                    ToggleRow(
+                        "Offline mode",
+                        "Only play music you've downloaded or saved on this phone. Nothing goes online.",
+                        settings.offlineMode,
+                    ) { v -> set { it.copy(offlineMode = v) } }
+                }
+                item {
+                    ToggleRow(
+                        "Offline access",
+                        "Download songs and playlists to listen without a connection. Turning this off removes your downloads.",
+                        settings.offlineAccess,
+                    ) { v -> if (v) set { it.copy(offlineAccess = true) } else confirmOfflineAccessOff = true }
+                }
+                item {
+                    ToggleRow(
+                        "Download using cellular",
+                        "Turn on to download over mobile data. Otherwise downloads wait for Wi-Fi.",
+                        settings.downloadOnCellular,
+                    ) { v -> set { it.copy(downloadOnCellular = v) } }
+                }
+                group("Storage")
+                item { StorageBar(downloadBytes, cacheBytes, disk.first, disk.second) }
+                item {
+                    SettingRow("Downloads", "${dl.downloaded.size} songs • ${formatBytes(downloadBytes)}", onClick = actions::openDownloads)
+                }
+                item {
+                    SettingRow("Remove all downloads", "Frees up the space used by downloaded songs.", onClick = { confirmClearDownloads = true })
+                }
+                item {
+                    SettingRow("Clear cache", "Cached artwork and pages. ${formatBytes(cacheBytes)}", onClick = {
+                        context.imageLoader.diskCache?.clear()
+                        context.imageLoader.memoryCache?.clear()
+                        context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+                        storageTick++
+                        actions.toast("Cache cleared")
+                    })
+                }
             }
-        }
 
-        item {
-            SettingRow(
-                "Spitify server",
-                when {
-                    settings.webServerUrl.isBlank() -> "Adds YouTube, Internet Archive, ccMixter and Jamendo from the server you run at home."
-                    else -> settings.webServerUrl + (webStatus?.let { ". $it" } ?: "")
-                },
-                onClick = { editingWeb = true },
-            )
-        }
-        if (settings.webServerUrl.isNotBlank()) {
-            item {
-                ToggleRow("Use Spitify server", "Include its results in Search.", settings.webServerEnabled) { v -> set { it.copy(webServerEnabled = v) } }
+            SettingsSection.QUALITY -> {
+                group("Wi-Fi streaming")
+                Quality.entries.forEach { q ->
+                    item(key = "wifi:${q.name}") { RadioRow(q.label, q.description, q, settings.wifiQuality) { v -> set { it.copy(wifiQuality = v) } } }
+                }
+                group("Cellular streaming")
+                Quality.entries.forEach { q ->
+                    item(key = "cell:${q.name}") { RadioRow(q.label, q.description, q, settings.cellularQuality) { v -> set { it.copy(cellularQuality = v) } } }
+                }
+                item {
+                    Text(
+                        "Very high plays the best stream each source has: up to 320 kbps on Audius, YouTube's top audio stream, lossless FLAC from the Internet Archive where it exists, and your own server's original files. Low turns data saver on for that connection.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
-        }
 
-        group("Local files")
-        item {
-            ToggleRow(
-                "Show audio files from this device",
-                when {
-                    !settings.showLocalFiles -> "Off"
-                    !localGranted -> "Tap to let Spitify see the music on your phone."
-                    else -> "${localTracks.size} songs found. They show up in Your Library and Search."
-                },
-                settings.showLocalFiles,
-            ) { v ->
-                set { it.copy(showLocalFiles = v) }
-                if (v && !catalog.local.hasPermission()) askLocal.launch(LocalMusic.PERMISSION)
+            SettingsSection.ABOUT -> {
+                item { SettingRow("Version", BuildConfig.VERSION_NAME) }
+                if (updater.supported) {
+                    item {
+                        SettingRow(
+                            "Check for updates",
+                            when (updateStatus) {
+                                AppUpdater.Status.Checking -> "Checking…"
+                                AppUpdater.Status.UpToDate -> "You're on the latest version"
+                                is AppUpdater.Status.Downloading -> "Downloading…"
+                                else -> "New builds install over this one and keep your library"
+                            },
+                            onClick = { updater.check() },
+                        )
+                    }
+                }
+                item {
+                    SettingRow(
+                        "Music catalogue",
+                        "Songs come from Audius, an open music platform, plus anything saved on your phone and your own server if you add one.",
+                    )
+                }
+                item { SettingRow("Lyrics", "Provided by LRCLIB, a free community lyrics database.") }
+                item { SettingRow("Made by", "Malcolm (s-rakim)") }
+                item {
+                    Text(
+                        "Spitify is an independent project. It isn't affiliated with or endorsed by Spotify.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SpitifyColors.TextMuted,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
-        }
-        if (settings.showLocalFiles && localGranted) {
-            item { SettingRow("Scan again", "Look for songs added since the last scan.", onClick = { scope.launch { catalog.local.refresh() } }) }
-        }
-
-        group("Audio quality")
-        item {
-            SettingRow("Volume level", "${settings.volumeLevel.label}. ${settings.volumeLevel.description}", onClick = { volumePicker = true })
-        }
-        item {
-            SettingRow(
-                "Equalizer",
-                if (settings.equalizerEnabled) "On" else "Off",
-                onClick = actions::openEqualizer,
-            )
-        }
-        item {
-            SettingRow(
-                "Streaming quality",
-                "Always the best each source has: up to 320 kbps on Audius, YouTube's top audio stream, lossless FLAC from the Internet Archive where it exists, and your own server's original files.",
-            )
-        }
-
-        group("Data saving and offline")
-        item {
-            ToggleRow("Data saver", "Loads smaller artwork to use less data.", settings.dataSaver) { v -> set { it.copy(dataSaver = v) } }
-        }
-        item {
-            ToggleRow(
-                "Download using cellular",
-                "Turn on to download over mobile data. Otherwise downloads wait for Wi-Fi.",
-                settings.downloadOnCellular,
-            ) { v -> set { it.copy(downloadOnCellular = v) } }
-        }
-
-        group("Privacy and social")
-        item {
-            ToggleRow(
-                "Private session",
-                "Pause your listening history. Nothing you play gets added to Recently played.",
-                settings.privateSession,
-            ) { v -> set { it.copy(privateSession = v) } }
-        }
-        item {
-            SettingRow("Clear listening history", "${lib.recentTracks.size} songs", onClick = {
-                library.clearHistory()
-                actions.toast("Listening history cleared")
-            })
-        }
-        item {
-            SettingRow("Clear recent searches", onClick = {
-                library.clearRecentSearches()
-                actions.toast("Recent searches cleared")
-            })
-        }
-
-        group("Storage")
-        item {
-            StorageBar(downloadBytes, cacheBytes)
-        }
-        item {
-            SettingRow("Downloads", "${dl.downloaded.size} songs • ${formatBytes(downloadBytes)}", onClick = actions::openDownloads)
-        }
-        item {
-            SettingRow("Remove all downloads", "Frees up the space used by downloaded songs.", onClick = { confirmClearDownloads = true })
-        }
-        item {
-            SettingRow("Clear cache", "Cached artwork and pages. ${formatBytes(cacheBytes)}", onClick = {
-                context.imageLoader.diskCache?.clear()
-                context.imageLoader.memoryCache?.clear()
-                context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-                storageTick++
-                actions.toast("Cache cleared")
-            })
-        }
-
-        group("About")
-        item { SettingRow("Version", BuildConfig.VERSION_NAME) }
-        if (updater.supported) {
-            item {
-                SettingRow(
-                    "Check for updates",
-                    when (updateStatus) {
-                        AppUpdater.Status.Checking -> "Checking…"
-                        AppUpdater.Status.UpToDate -> "You're on the latest version"
-                        is AppUpdater.Status.Downloading -> "Downloading…"
-                        else -> "New builds install over this one and keep your library"
-                    },
-                    onClick = { updater.check() },
-                )
-            }
-        }
-        item {
-            SettingRow(
-                "Music catalogue",
-                "Songs come from Audius, an open music platform, plus anything saved on your phone and your own server if you add one.",
-            )
-        }
-        item { SettingRow("Lyrics", "Provided by LRCLIB, a free community lyrics database.") }
-        item { SettingRow("Made by", "Malcolm (s-rakim)") }
-        item {
-            Text(
-                "Spitify is an independent project. It isn't affiliated with or endorsed by Spotify.",
-                style = MaterialTheme.typography.bodySmall,
-                color = SpitifyColors.TextMuted,
-                modifier = Modifier.padding(16.dp),
-            )
         }
     }
 
@@ -462,17 +779,45 @@ fun SettingsScreen() {
                     value = name,
                     onValueChange = { name = it.take(40) },
                     singleLine = true,
-                    placeholder = { Text("Shown in your greeting") },
+                    placeholder = { Text("Shown in your greeting and to friends") },
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SpitifyColors.Accent, cursorColor = SpitifyColors.Accent),
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    set { it.copy(profileName = name.trim()) }
+                    val clean = name.trim()
+                    set { it.copy(profileName = clean) }
+                    if (acct.signedIn && clean.isNotBlank()) scope.launch { runCatching { app.social.updateProfile(displayName = clean) } }
                     editingName = false
                 }) { Text("Save", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (editingSpotifyId) {
+        var id by remember { mutableStateOf(settings.spotifyClientId) }
+        AlertDialog(
+            onDismissRequest = { editingSpotifyId = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Spotify app id") },
+            text = {
+                Column {
+                    Text(
+                        "The Client ID from your app on developer.spotify.com, with spitify://spotify-auth added as a Redirect URI. Leave it blank to use the one built into this version.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DialogField(id, { id = it.trim() }, "Client ID")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    set { it.copy(spotifyClientId = id) }
+                    editingSpotifyId = false
+                }) { Text("Save", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editingSpotifyId = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 
@@ -534,39 +879,6 @@ fun SettingsScreen() {
         )
     }
 
-    if (volumePicker) {
-        AlertDialog(
-            onDismissRequest = { volumePicker = false },
-            containerColor = SpitifyColors.Elevated,
-            title = { Text("Volume level") },
-            text = {
-                Column {
-                    VolumeLevel.entries.forEach { level ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                set { it.copy(volumeLevel = level) }
-                                volumePicker = false
-                            }.padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = settings.volumeLevel == level,
-                                onClick = null,
-                                colors = RadioButtonDefaults.colors(selectedColor = SpitifyColors.Accent),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(level.label, style = MaterialTheme.typography.bodyLarge)
-                                Text(level.description, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { volumePicker = false }) { Text("Done", color = SpitifyColors.Accent) } },
-        )
-    }
-
     if (confirmClearDownloads) {
         AlertDialog(
             onDismissRequest = { confirmClearDownloads = false },
@@ -582,6 +894,24 @@ fun SettingsScreen() {
                 }) { Text("Remove", color = SpitifyColors.Accent) }
             },
             dismissButton = { TextButton(onClick = { confirmClearDownloads = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
+        )
+    }
+
+    if (confirmOfflineAccessOff) {
+        AlertDialog(
+            onDismissRequest = { confirmOfflineAccessOff = false },
+            containerColor = SpitifyColors.Elevated,
+            title = { Text("Turn off offline access?") },
+            text = { Text("This removes all ${dl.downloaded.size} downloaded songs and hides the download buttons.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    downloads.removeAll()
+                    set { it.copy(offlineAccess = false, offlineMode = false) }
+                    storageTick++
+                    confirmOfflineAccessOff = false
+                }) { Text("Turn off", color = SpitifyColors.Accent) }
+            },
+            dismissButton = { TextButton(onClick = { confirmOfflineAccessOff = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
         )
     }
 }
@@ -650,18 +980,25 @@ private fun AppIconPicker() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StorageBar(downloadBytes: Long, cacheBytes: Long) {
-    val total = (downloadBytes + cacheBytes).coerceAtLeast(1)
+private fun StorageBar(downloadBytes: Long, cacheBytes: Long, totalBytes: Long = 0, freeBytes: Long = 0) {
+    val other = (totalBytes - freeBytes - downloadBytes - cacheBytes).coerceAtLeast(0)
+    val total = (if (totalBytes > 0) totalBytes else downloadBytes + cacheBytes).coerceAtLeast(1)
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(SpitifyColors.Highlight)) {
+            if (other > 0) Box(Modifier.weight(other.toFloat() / total).height(8.dp).background(SpitifyColors.TextMuted))
             if (downloadBytes > 0) Box(Modifier.weight(downloadBytes.toFloat() / total).height(8.dp).background(SpitifyColors.Accent))
             if (cacheBytes > 0) Box(Modifier.weight(cacheBytes.toFloat() / total).height(8.dp).background(SpitifyColors.TextSecondary))
+            val rest = (total - other - downloadBytes - cacheBytes).coerceAtLeast(0)
+            if (rest > 0) Spacer(Modifier.weight(rest.toFloat() / total))
         }
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (totalBytes > 0) Legend(SpitifyColors.TextMuted, "Other apps ${formatBytes(other)}")
             Legend(SpitifyColors.Accent, "Downloads ${formatBytes(downloadBytes)}")
             Legend(SpitifyColors.TextSecondary, "Cache ${formatBytes(cacheBytes)}")
+            if (totalBytes > 0) Legend(SpitifyColors.Highlight, "Free ${formatBytes(freeBytes)}")
         }
     }
 }

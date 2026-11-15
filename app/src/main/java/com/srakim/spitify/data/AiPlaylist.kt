@@ -1,19 +1,112 @@
 package com.srakim.spitify.data
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.put
+import java.util.concurrent.ConcurrentHashMap
+
+/** How to get into a song from the one before, as the DJ marked it. */
+@Serializable
+data class MixIn(val technique: String = "blend", val bars: Int = 16, val fadeSec: Double = 6.0)
+
+@Serializable
+data class DjPick(
+    val id: String,
+    val title: String = "",
+    val artist: String = "",
+    val genre: String? = null,
+    val bpm: Int? = null,
+    val key: String? = null,
+    val energy: Double = 0.5,
+    val note: String? = null,
+    val mixIn: MixIn? = null,
+)
+
+/** What the server's DJ sends back. "agent" when a model picked the songs, "rules" otherwise. */
+@Serializable
+data class DjReply(
+    val engine: String = "rules",
+    val title: String? = null,
+    val description: String? = null,
+    val intro: String? = null,
+    val arc: String? = null,
+    val tracks: List<DjPick> = emptyList(),
+)
+
+/** Fade lengths per song for DJ sets, read by the playback service when it mixes. */
+object MixPlan {
+    private val fades = ConcurrentHashMap<String, Long>()
+
+    fun remember(picks: List<DjPick>) = picks.forEach { p ->
+        p.mixIn?.let { fades[p.id] = (it.fadeSec * 1000).toLong().coerceIn(300L, 12_000L) }
+    }
+
+    fun fadeMs(id: String?): Long? = id?.let { fades[it] }
+}
+
+internal val djJson = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
 
 /**
- * AI Playlist without a paid AI service. The prompt is read on the phone: words that name a
- * genre, a mood, an activity, a time of day or an artist ("songs like Burna Boy") are turned
- * into Audius searches and genre charts, then mixed and trimmed into a playlist. It runs
- * offline from any model and costs nothing, and it explains what it picked up so you can
- * tweak the prompt.
+ * AI Playlist. With a Spitify account the prompt goes to the server's DJ agent, which digs
+ * through Audius with a language model and orders the songs for tempo, key and energy like a
+ * real set. Without one (or if the server can't be reached) the prompt is read on the phone:
+ * words that name a genre, a mood, an activity, a time of day or an artist ("songs like Burna
+ * Boy") turn into Audius searches and genre charts, then get mixed and shaped into a set.
  */
 object AiPlaylist {
 
-    data class Result(val title: String, val description: String, val understood: List<String>, val tracks: List<Track>)
+    data class Result(
+        val title: String,
+        val description: String,
+        val understood: List<String>,
+        val tracks: List<Track>,
+        val intro: String? = null,
+        val byAgent: Boolean = false,
+    )
+
+    /** Asks the server's DJ first and falls back to the phone. */
+    suspend fun generate(prompt: String, catalog: Catalog, account: AccountSync, skip: Set<String>, size: Int = 40): Result {
+        if (account.state.value.signedIn) {
+            val fromServer = runCatching { fromServer(prompt, catalog, account, skip, size) }.getOrNull()
+            if (fromServer != null && fromServer.tracks.size >= minOf(5, size)) return fromServer
+        }
+        return generate(prompt, catalog, skip, size)
+    }
+
+    private suspend fun fromServer(prompt: String, catalog: Catalog, account: AccountSync, skip: Set<String>, size: Int): Result {
+        val reply = withContext(Dispatchers.IO) {
+            account.request(
+                "api/ai/playlist",
+                "POST",
+                buildJsonObject {
+                    put("prompt", prompt)
+                    put("size", size)
+                    put("skip", JsonArray(skip.take(300).map { JsonPrimitive(it) }))
+                },
+                slow = true,
+            )
+        }.let { djJson.decodeFromJsonElement<DjReply>(it) }
+        MixPlan.remember(reply.tracks)
+        val tracks = catalog.audius.tracksByIds(reply.tracks.map { it.id })
+        val title = reply.title?.takeIf { it.isNotBlank() } ?: prompt.trim().take(40).replaceFirstChar { it.uppercase() }
+        return Result(
+            title = title,
+            description = reply.description ?: "Made from \"${prompt.trim()}\"",
+            understood = listOfNotNull(reply.arc?.let { "$it arc" }, if (reply.engine == "agent") "picked by the DJ" else null),
+            tracks = tracks,
+            intro = reply.intro,
+            byAgent = reply.engine == "agent",
+        )
+    }
 
     private data class Hint(val genres: List<String> = emptyList(), val searches: List<String> = emptyList(), val label: String)
 
@@ -106,6 +199,54 @@ object AiPlaylist {
         }
         val title = prompt.trim().take(40).replaceFirstChar { it.uppercase() }.ifBlank { "AI Playlist" }
         val description = if (understood.isEmpty()) "Made from \"${prompt.trim()}\"" else "Made from \"${prompt.trim()}\": ${understood.joinToString(", ")}"
-        Result(title, description, understood, out.values.toList())
+        Result(title, description, understood, SetShaper.shape(out.values.toList()))
+    }
+}
+
+/**
+ * The phone's own sequencing when the server's DJ isn't around: a rough energy per song from
+ * its genre, then a warm-up, a climb to a peak about two thirds in and a landing, with the
+ * same artist kept apart. Much simpler than the server's, which also has tempo and key.
+ */
+object SetShaper {
+    private val energy = mapOf(
+        "Ambient" to 0.2, "Lo-Fi" to 0.3, "Classical" to 0.3, "Acoustic" to 0.35, "Folk" to 0.35, "Downtempo" to 0.38,
+        "Jazz" to 0.4, "Soundtrack" to 0.45, "Blues" to 0.45, "Country" to 0.5, "R&B/Soul" to 0.5, "Reggae" to 0.5,
+        "World" to 0.5, "Alternative" to 0.55, "Pop" to 0.62, "Funk" to 0.65, "Hip-Hop/Rap" to 0.66, "Latin" to 0.68,
+        "Deep House" to 0.68, "Disco" to 0.68, "Dancehall" to 0.7, "Rock" to 0.7, "Electronic" to 0.74, "House" to 0.76,
+        "Tech House" to 0.8, "Trap" to 0.8, "Trance" to 0.82, "Techno" to 0.84, "Punk" to 0.85, "Metal" to 0.88,
+        "Drum & Bass" to 0.9, "Dubstep" to 0.9, "Hardstyle" to 0.95,
+    )
+
+    fun energyOf(t: Track): Double = energy[t.genre] ?: 0.55
+
+    private fun target(i: Int, n: Int): Double {
+        val t = if (n <= 1) 0.0 else i.toDouble() / (n - 1)
+        val pts = listOf(0.0 to 0.45, 0.35 to 0.64, 0.68 to 0.88, 0.85 to 0.8, 1.0 to 0.6)
+        for (k in 1 until pts.size) {
+            val (x0, y0) = pts[k - 1]
+            val (x1, y1) = pts[k]
+            if (t <= x1) return y0 + (y1 - y0) * (t - x0) / (x1 - x0)
+        }
+        return 0.6
+    }
+
+    fun shape(tracks: List<Track>): List<Track> {
+        val left = tracks.toMutableList()
+        val out = ArrayList<Track>(tracks.size)
+        for (i in tracks.indices) {
+            val goal = target(i, tracks.size)
+            val prev = out.lastOrNull()
+            val recent = out.takeLast(3).map { it.artist }
+            val pick = left.minBy { t ->
+                var cost = kotlin.math.abs(energyOf(t) - goal) * 3
+                if (prev != null && t.genre != prev.genre) cost += 0.4
+                if (t.artist in recent) cost += if (t.artist == prev?.artist) 3.0 else 1.0
+                cost
+            }
+            left.remove(pick)
+            out += pick
+        }
+        return out
     }
 }

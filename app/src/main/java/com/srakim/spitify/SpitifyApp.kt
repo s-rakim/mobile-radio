@@ -62,6 +62,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val stats: ListeningStats by lazy { ListeningStats(this, settings) }
     val nearby: NearbyJam by lazy { NearbyJam(this) }
     val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy { com.srakim.spitify.data.SpotifyImport(this, httpClient, settings) }
+    val dj: com.srakim.spitify.data.AiDj by lazy { com.srakim.spitify.data.AiDj(this) }
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Set by the playback service while it's alive, so Settings can read equaliser bands. */
@@ -75,6 +76,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
         account.start()
         social.start()
         stats.start(player, social)
+        dj.start()
         // Friends see what you're playing: tell the server when the song or play state changes,
         // and every couple of minutes while it keeps playing so it still shows as live.
         appScope.launch {

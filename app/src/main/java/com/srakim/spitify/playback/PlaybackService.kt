@@ -27,6 +27,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.srakim.spitify.MainActivity
 import com.srakim.spitify.SpitifyApp
+import com.srakim.spitify.data.MixPlan
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.DownloadStore
 import kotlinx.coroutines.CoroutineScope
@@ -136,7 +137,8 @@ class PlaybackService : MediaSessionService() {
             val ctx = app.player.state.value.context?.id.orEmpty()
             val mixedPlaylist = ctx.startsWith("mine:") &&
                 app.library.state.value.playlists.any { it.id == ctx.removePrefix("mine:") && it.mixed }
-            val automix = settings.automix && (mixedPlaylist || ctx.startsWith("mix:") || ctx.startsWith("radio:") || ctx.startsWith("ai:"))
+            val djSet = ctx == "dj" || ctx.startsWith("ai:")
+            val automix = settings.automix && (mixedPlaylist || djSet || ctx.startsWith("mix:") || ctx.startsWith("radio:"))
             val fadeMs = maxOf(settings.crossfadeSeconds * 1000L, if (automix) AUTOMIX_MS else 0L)
             if (fadeMs <= 0 || !player.isPlaying) {
                 if (player.volume != base) player.volume = base
@@ -145,11 +147,17 @@ class PlaybackService : MediaSessionService() {
             val duration = player.duration
             val position = player.currentPosition
             if (duration == C.TIME_UNSET || duration <= 0) continue
-            val window = minOf(fadeMs, duration / 3)
+            // DJ sets carry a fade length per transition: long blends where tempo and key line up,
+            // a near-cut on a big drop.
+            val nextId = if (player.hasNextMediaItem()) player.getMediaItemAt(player.nextMediaItemIndex).mediaId else null
+            val inMs = (if (automix && djSet) MixPlan.fadeMs(player.currentMediaItem?.mediaId) else null) ?: fadeMs
+            val outMs = (if (automix && djSet) MixPlan.fadeMs(nextId) else null) ?: fadeMs
+            val inWindow = minOf(inMs, duration / 3).coerceAtLeast(1)
+            val outWindow = minOf(outMs, duration / 3).coerceAtLeast(1)
             val remaining = duration - position
             val factor = when {
-                position < window -> position.toFloat() / window
-                remaining < window && player.hasNextMediaItem() -> remaining.toFloat() / window
+                position < inWindow -> position.toFloat() / inWindow
+                remaining < outWindow && player.hasNextMediaItem() -> remaining.toFloat() / outWindow
                 else -> 1f
             }.coerceIn(0.05f, 1f)
             player.volume = base * factor

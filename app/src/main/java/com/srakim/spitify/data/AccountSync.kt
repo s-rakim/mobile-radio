@@ -211,6 +211,8 @@ class AccountSync(
         verb: String = "GET",
         body: JsonElement? = null,
         query: Map<String, String> = emptyMap(),
+        /** For calls that take a while on the server, like the AI DJ. */
+        slow: Boolean = false,
     ): JsonElement {
         val t = token ?: throw IOException("Log in to use this")
         val base = serverBase() ?: throw IOException("Add your Spitify server in Settings first")
@@ -222,7 +224,7 @@ class AccountSync(
             if (verb == "GET") get()
             else method(verb, (body ?: buildJsonObject {}).toString().toRequestBody(jsonType))
         }.build()
-        http.newCall(request).execute().use { response ->
+        (if (slow) slowHttp else http).newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             val parsed = runCatching { json.parseToJsonElement(text) }.getOrNull()
             if (response.code == 401) {
@@ -236,6 +238,8 @@ class AccountSync(
             return parsed ?: JsonObject(emptyMap())
         }
     }
+
+    private val slowHttp by lazy { http.newBuilder().readTimeout(150, java.util.concurrent.TimeUnit.SECONDS).build() }
 
     /** The server address: the one typed in Settings, else the one built into the app. */
     fun serverBase() = SpitifyServerApi.base(settings.current.webServerUrl.ifBlank { com.srakim.spitify.BuildConfig.DEFAULT_SERVER_URL })

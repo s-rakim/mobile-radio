@@ -389,6 +389,27 @@ class PlayerController(
         }
     }
 
+    /** Adds songs to the very end, after the playlist. The DJ keeps its set going this way. */
+    fun append(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        tracks.forEach { known[it.id] = it }
+        withController { c ->
+            if (c.mediaItemCount == 0) play(tracks, 0, playContext) else c.addMediaItems(tracks.map { mediaItemFor(it) })
+        }
+    }
+
+    /** Swaps everything after the current song (keeping songs you queued) for [tracks]. */
+    fun replaceUpcoming(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        tracks.forEach { known[it.id] = it }
+        withController { c ->
+            if (c.mediaItemCount == 0) return@withController play(tracks, 0, playContext)
+            val from = c.currentMediaItemIndex + 1 + pendingQueued(c).size
+            if (from < c.mediaItemCount) c.removeMediaItems(from, c.mediaItemCount)
+            c.addMediaItems(tracks.map { mediaItemFor(it) })
+        }
+    }
+
     /**
      * Drag and drop in the queue. Positions count from the first song after the current one.
      * Dropping a song among the queued ones makes it part of the queue; dragging a queued song

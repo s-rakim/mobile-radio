@@ -87,26 +87,21 @@ data class AppSettings(
     val wifiQuality: Quality = Quality.HIGH,
     val cellularQuality: Quality = Quality.AUTO,
 
-    // Content and display
-    val allowExplicit: Boolean = true,
-    val showCanvasArt: Boolean = true,
-
     // Privacy and social
     /** Friends can see what you're playing. */
     val shareActivity: Boolean = true,
-    /** New playlists show on your profile to friends. */
-    val publicPlaylists: Boolean = true,
-    val showRecentArtists: Boolean = true,
 
     // Notifications
     val notifyMessages: Boolean = true,
     val notifyFollows: Boolean = true,
     val notifyCollab: Boolean = true,
-    val notifyReleases: Boolean = true,
 
     // Connect
     /** While you host a Jam, phones with Spitify on the same Wi-Fi get an invite. */
     val autoInviteNearby: Boolean = false,
+
+    /** The AI DJ talks between songs, like a radio host. */
+    val djVoice: Boolean = true,
 
     /** Client id of Malcolm's Spotify developer app, for importing playlists. */
     val spotifyClientId: String = "",

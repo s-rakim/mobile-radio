@@ -15,7 +15,7 @@ class SpotifyRemoteImpl(@Suppress("UNUSED_PARAMETER") context: Context) : Spotif
 
     override fun connect(context: Context, clientId: String, interactive: Boolean) = Unit
     override fun disconnect() = Unit
-    override fun play(uri: String) = Unit
+    override fun play(uri: String, onError: (String) -> Unit) = onError("this version was built without Spotify playback")
     override fun queue(uri: String) = Unit
     override fun pause() = Unit
     override fun resume() = Unit

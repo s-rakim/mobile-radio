@@ -45,6 +45,23 @@ on the dashboard can use it.
   show up in Search next to everything else. They say "On Spotify" under the title in the player,
   with a link back to the song on Spotify.
 
+## When the Spotify app can't play
+
+Spitify never waits on the Spotify app. If it isn't connected, the account isn't Premium, or
+the app refuses a song, the song plays on Spitify's own player from the first of its sources
+that has it: songs on the phone, your own server, Audius, Jamendo, Internet Archive, ccMixter
+and SoundCloud. A short note shows when it's a close match rather than the same song, or
+another song by the same artist because nobody had that one. Spotify's own audio only ever
+plays inside the Spotify app.
+
+If Spotify won't connect, the reason shows under **Connect to Spotify**. The usual ones:
+
+- *Spotify needs you to allow Spitify once*: Spitify now opens that screen by itself the first
+  time; you can also tap Connect to Spotify.
+- *Spotify doesn't recognise this app*: the dashboard needs the Android package
+  `com.srakim.spitify` with the release key's SHA-1, and your account under User Management.
+- *Redirect URI*: `spitify://spotify-remote` has to be listed next to `spitify://spotify-auth`.
+
 ## How the build gets the SDK
 
 Spotify publishes the App Remote SDK as an `.aar` on its GitHub releases page rather than on

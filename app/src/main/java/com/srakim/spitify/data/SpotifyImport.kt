@@ -42,6 +42,18 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     data class SourceTrack(val title: String, val artist: String, val durationMs: Long = 0)
 
+    /** A song from Spitify's own sources playing in place of a Spotify one, and how close it is. */
+    data class StandIn(val track: Track, val kind: Kind) {
+        enum class Kind {
+            /** Same title and artist. */
+            EXACT,
+            /** Probably the same song, maybe another version or a differently written title. */
+            CLOSE,
+            /** Nobody had the song, so another one by the same artist. */
+            SAME_ARTIST,
+        }
+    }
+
     data class SourcePlaylist(val id: String, val name: String, val tracks: List<SourceTrack>, val total: Int = tracks.size)
 
     data class Match(val source: SourceTrack, val track: Track?)
@@ -415,9 +427,22 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         )
     }
 
-    /** The closest song in Spitify's own sources, for when Spotify can't play [track]. */
-    suspend fun standInFor(track: Track, catalog: Catalog): Track? =
-        runCatching { bestMatch(SourceTrack(track.title, track.artist, track.durationSec * 1000L), catalog) }.getOrNull()
+    /** Stand-ins found so far, by Spotify id, so replaying a song or a playlist starts at once. */
+    private val standIns = java.util.concurrent.ConcurrentHashMap<String, StandIn>()
+
+    /**
+     * The song from Spitify's own sources that plays when Spotify can't play [track]: the same
+     * song when one of them has it, else the closest version, else something by the same artist.
+     */
+    suspend fun standInFor(track: Track, catalog: Catalog): StandIn? {
+        standIns[track.id]?.let { return it }
+        val found = runCatching {
+            bestMatch(SourceTrack(track.title, track.artist, track.durationSec * 1000L), catalog, sameArtistWillDo = true)
+        }.getOrNull()
+        // Only answers are kept: a miss might just be a dropped connection.
+        if (found != null) standIns[track.id] = found
+        return found
+    }
 
     private fun api(url: String): JsonElement {
         val t = freshToken() ?: throw IOException("Sign in to Spotify again")
@@ -561,14 +586,14 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     // ---------- Matching ----------
 
-    /** Finds each song on Audius. [onProgress] gets (done, total) as it goes. */
+    /** Finds each song in Spitify's own sources. [onProgress] gets (done, total) as it goes. */
     suspend fun match(tracks: List<SourceTrack>, catalog: Catalog, onProgress: (Int, Int) -> Unit): List<Match> = coroutineScope {
         val gate = Semaphore(4)
         var done = 0
         tracks.map { src ->
             async {
                 gate.withPermit {
-                    val found = runCatching { bestMatch(src, catalog) }.getOrNull()
+                    val found = runCatching { bestMatch(src, catalog)?.track }.getOrNull()
                     synchronized(this@SpotifyImport) { done++ }
                     onProgress(done, tracks.size)
                     Match(src, found)
@@ -577,12 +602,28 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         }.awaitAll()
     }
 
-    private suspend fun bestMatch(src: SourceTrack, catalog: Catalog): Track? {
+    /**
+     * Looks for [src] in every source Spitify plays from directly (songs on this phone, your own
+     * server, Audius, Jamendo, Internet Archive, ccMixter and SoundCloud) and keeps the best
+     * close match. Imports stop there; playback can also settle for the same artist.
+     */
+    private suspend fun bestMatch(src: SourceTrack, catalog: Catalog, sameArtistWillDo: Boolean = false): StandIn? {
         val firstArtist = src.artist.split(",", "&", " feat", " ft.").first().trim()
-        val query = listOf(clean(src.title), firstArtist).filter { it.isNotBlank() }.joinToString(" ")
-        val candidates = catalog.audius.searchTracks(query).take(15)
-        val scored = candidates.map { it to score(src, it) }.maxByOrNull { it.second } ?: return null
-        return scored.first.takeIf { scored.second >= 0.62 }
+        val title = clean(src.title)
+        val query = listOf(title, firstArtist).filter { it.isNotBlank() }.joinToString(" ")
+        var candidates = catalog.searchForMatch(query)
+        // Some catalogues only find a song by its title alone.
+        if (candidates.none { score(src, it) >= CLOSE } && title.isNotBlank() && firstArtist.isNotBlank()) {
+            candidates = candidates + catalog.searchForMatch(title)
+        }
+        val (best, points) = candidates.map { it to score(src, it) }.maxByOrNull { it.second } ?: (null to 0.0)
+        if (best != null && points >= EXACT) return StandIn(best, StandIn.Kind.EXACT)
+        if (best != null && points >= CLOSE) return StandIn(best, StandIn.Kind.CLOSE)
+        if (!sameArtistWillDo || firstArtist.isBlank()) return null
+        val artist = clean(firstArtist)
+        val pool = candidates.filter { similarity(clean(it.artist), artist) >= 0.85 }
+            .ifEmpty { catalog.searchForMatch(firstArtist).filter { similarity(clean(it.artist), artist) >= 0.85 } }
+        return pool.maxByOrNull { it.playCount }?.let { StandIn(it, StandIn.Kind.SAME_ARTIST) }
     }
 
     private fun score(src: SourceTrack, t: Track): Double {
@@ -623,6 +664,9 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
     }
 
     companion object {
+        /** Match scores: title counts 0.6, artist 0.4, plus a little for the same length. */
+        private const val EXACT = 0.95
+        private const val CLOSE = 0.62
         const val REDIRECT = "spitify://spotify-auth"
         const val TRACK_PREFIX = "spotify:track:"
 

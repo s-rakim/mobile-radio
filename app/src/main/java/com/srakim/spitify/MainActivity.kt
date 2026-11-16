@@ -13,12 +13,20 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.srakim.spitify.data.Jam
 import com.srakim.spitify.data.Links
 import com.srakim.spitify.ui.SpitifyRoot
 import com.srakim.spitify.ui.theme.SpitifyTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private companion object {
+        var askedSpotifyApproval = false
+    }
 
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -46,10 +54,24 @@ class MainActivity : ComponentActivity() {
                 SpitifyRoot(app)
             }
         }
+
+        // The Spotify app asks you once to let Spitify pick songs. The quiet connect below
+        // can't show that screen, so when Spotify says it's needed, connect again with it
+        // allowed. Once per launch, so saying no doesn't bring it straight back.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                app.spotifyRemote.state.collect { rs ->
+                    if (rs.needsApproval && !askedSpotifyApproval && app.settings.current.playThroughSpotify) {
+                        askedSpotifyApproval = true
+                        app.spotifyRemote.connect(this@MainActivity, app.spotifyImport.clientId, interactive = true)
+                    }
+                }
+            }
+        }
     }
 
-    // Quietly reconnect to the Spotify app each time Spitify comes to the front. No sign-in
-    // screens here: the first connect is done from Settings, and this only picks it back up.
+    // Quietly reconnect to the Spotify app each time Spitify comes to the front. If Spotify
+    // wants your OK first, the watcher in onCreate asks for it.
     override fun onStart() {
         super.onStart()
         val app = application as SpitifyApp

@@ -22,6 +22,7 @@ import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.RadioBrowserApi
 import com.srakim.spitify.data.SpitifyServerApi
 import com.srakim.spitify.data.SpotifyImport
+import com.srakim.spitify.data.SpotifyImport.StandIn
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -218,10 +219,21 @@ class PlayerController(
         if (tracks.isEmpty()) return
         val first = tracks.getOrNull(startIndex.coerceIn(tracks.indices))
         if (first != null && SpotifyImport.isSpotify(first.id)) {
-            playSpotify(tracks, startIndex.coerceIn(tracks.indices), from)
+            playSpotify(tracks, startIndex.coerceIn(tracks.indices), from, shuffle)
             return
         }
+        standInJob?.cancel()
         leaveRemote()
+        if (tracks.any { SpotifyImport.isSpotify(it.id) }) {
+            // Your songs mixed with Spotify ones (Liked Songs, say): the Spotify ones get stand-ins.
+            playStandIns(tracks, startIndex.coerceIn(tracks.indices), from, shuffle)
+            return
+        }
+        startLocal(tracks, startIndex, from, shuffle)
+    }
+
+    /** Plays [tracks] on the phone. None of them may be Spotify songs by now. */
+    private fun startLocal(tracks: List<Track>, startIndex: Int, from: PlayContext?, shuffle: Boolean?) {
         tracks.forEach { known[it.id] = it }
         playContext = from
         if (shuffle != null) setShuffle(shuffle)
@@ -410,8 +422,31 @@ class PlayerController(
         }
     }
 
+    /**
+     * Spotify songs can't go into Spitify's own player, so they're swapped for their stand-ins
+     * first (in order, a few at a time). Everything else passes straight through.
+     */
+    private fun playable(tracks: List<Track>, then: (List<Track>) -> Unit) {
+        if (tracks.none { SpotifyImport.isSpotify(it.id) }) return then(tracks)
+        val bridge = spotify
+        scope.launch {
+            val gate = Semaphore(3)
+            val out = coroutineScope {
+                tracks.map { t ->
+                    async {
+                        if (!SpotifyImport.isSpotify(t.id)) t
+                        else gate.withPermit { bridge?.standIn(t)?.also { noteStandIn(t, it) }?.track }
+                    }
+                }.awaitAll()
+            }.filterNotNull()
+            if (out.isEmpty()) _messages.tryEmit("Couldn't find that anywhere Spitify can play it") else then(out)
+        }
+    }
+
     /** Straight after the current song, ahead of anything else in the queue. */
     fun playNext(track: Track) {
+        if (remoteMode && SpotifyImport.isSpotify(track.id)) return spotify?.remote?.queue(track.id) ?: Unit
+        if (SpotifyImport.isSpotify(track.id)) return playable(listOf(track)) { playNext(it.first()) }
         known[track.id] = track
         withController { c ->
             if (c.mediaItemCount == 0) {
@@ -425,6 +460,8 @@ class PlayerController(
 
     /** After the current song and anything queued before it, but ahead of the rest of the playlist, like Spotify. */
     fun addToQueue(track: Track) {
+        if (remoteMode && SpotifyImport.isSpotify(track.id)) return spotify?.remote?.queue(track.id) ?: Unit
+        if (SpotifyImport.isSpotify(track.id)) return playable(listOf(track)) { addToQueue(it.first()) }
         known[track.id] = track
         withController { c ->
             if (c.mediaItemCount == 0) {
@@ -440,6 +477,7 @@ class PlayerController(
     /** Adds songs to the very end, after the playlist. The DJ keeps its set going this way. */
     fun append(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        if (tracks.any { SpotifyImport.isSpotify(it.id) }) return playable(tracks) { append(it) }
         tracks.forEach { known[it.id] = it }
         withController { c ->
             if (c.mediaItemCount == 0) play(tracks, 0, playContext) else c.addMediaItems(tracks.map { mediaItemFor(it) })
@@ -449,6 +487,7 @@ class PlayerController(
     /** Swaps everything after the current song (keeping songs you queued) for [tracks]. */
     fun replaceUpcoming(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        if (tracks.any { SpotifyImport.isSpotify(it.id) }) return playable(tracks) { replaceUpcoming(it) }
         tracks.forEach { known[it.id] = it }
         withController { c ->
             if (c.mediaItemCount == 0) return@withController play(tracks, 0, playContext)
@@ -562,7 +601,7 @@ class PlayerController(
 
     // ---------- Spotify ----------
 
-    private fun playSpotify(tracks: List<Track>, start: Int, from: PlayContext?) {
+    private fun playSpotify(tracks: List<Track>, start: Int, from: PlayContext?, shuffle: Boolean? = null) {
         tracks.forEach { known[it.id] = it }
         val bridge = spotify
         if (bridge != null && bridge.ready) {
@@ -575,43 +614,85 @@ class PlayerController(
             remoteQueue = spotifyOnly
             remoteQueuedAfter = -1
             remoteMode = true
-            bridge.remote.play(startId)
+            bridge.remote.play(startId) { why ->
+                // Connected, but the Spotify app still said no: carry on through Spitify.
+                scope.launch { fallBackFromRemote(startId, "Spotify couldn't play that ($why).") }
+            }
             remoteJob?.cancel()
             remoteJob = scope.launch { bridge.remote.state.collect { publishRemote(it) } }
             return
         }
-        // No Spotify app, no Premium or not connected: the same songs from Spitify's sources.
-        _messages.tryEmit(bridge?.whyNot() ?: "Playing the closest match from Spitify's sources")
-        if (bridge == null) return
+        // No Spotify app, no Premium or not connected: the same songs, played by Spitify itself.
+        leaveRemote()
+        playStandIns(tracks, start, from, shuffle, lead = bridge?.whyNotOnce())
+    }
+
+    /**
+     * Plays a list that has Spotify songs in it on Spitify's own player: each Spotify song is
+     * swapped for the same song from Spitify's sources (or the closest one). The first one that
+     * turns up starts straight away and the rest join the queue as they're found.
+     */
+    private fun playStandIns(tracks: List<Track>, start: Int, from: PlayContext?, shuffle: Boolean? = null, lead: String? = null) {
+        val bridge = spotify
         standInJob?.cancel()
         standInJob = scope.launch {
-            suspend fun resolve(t: Track): Track? = if (SpotifyImport.isSpotify(t.id)) bridge.standIn(t) else t
-            val wanted = tracks.drop(start).take(STAND_IN_MAX)
+            suspend fun resolve(t: Track): StandIn? =
+                if (!SpotifyImport.isSpotify(t.id)) StandIn(t, StandIn.Kind.EXACT) else bridge?.standIn(t)?.also { noteStandIn(t, it) }
+            val ordered = if (shuffle == true) tracks.shuffled() else tracks.drop(start)
+            val wanted = ordered.take(STAND_IN_MAX)
             var firstAt = -1
-            var firstMatch: Track? = null
-            for ((i, t) in wanted.withIndex().take(5)) {
-                firstMatch = resolve(t)
-                if (firstMatch != null) {
+            var first: StandIn? = null
+            for ((i, t) in wanted.withIndex().take(6)) {
+                first = resolve(t)
+                if (first != null) {
                     firstAt = i
                     break
                 }
             }
-            val found = firstMatch ?: run {
-                _messages.tryEmit("Couldn't find that one anywhere else")
+            val found = first ?: run {
+                _messages.tryEmit(lead ?: "Couldn't find \"${wanted.firstOrNull()?.title}\" anywhere Spitify can play it")
                 return@launch
             }
-            play(listOf(found), 0, from)
-            val gate = Semaphore(4)
+            startLocal(listOf(found.track), 0, from, shuffle)
+            val skipped = if (firstAt > 0) "Skipped $firstAt ${if (firstAt == 1) "song" else "songs"} Spitify couldn't find." else null
+            listOfNotNull(lead, skipped).joinToString(" ").ifBlank { null }?.let { _messages.tryEmit(it) }
+            val gate = Semaphore(3)
             val rest = coroutineScope {
                 wanted.drop(firstAt + 1).map { t -> async { gate.withPermit { resolve(t) } } }.awaitAll()
-            }.filterNotNull()
+            }.filterNotNull().map { it.track }
             if (rest.isNotEmpty()) append(rest)
         }
     }
 
+    /** What to say when a stand-in isn't the exact song, shown when it starts playing. */
+    private val standInNotes = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun noteStandIn(original: Track, s: StandIn) {
+        val note = when (s.kind) {
+            StandIn.Kind.EXACT -> return
+            StandIn.Kind.CLOSE -> "Closest match on Spitify: ${s.track.title} by ${s.track.artist}"
+            StandIn.Kind.SAME_ARTIST -> "Spitify can't find \"${original.title}\", so here's ${s.track.title} by ${s.track.artist}"
+        }
+        standInNotes[s.track.id] = note
+    }
+
+    /** The Spotify app stopped playing for us: pick up the same list on Spitify's player. */
+    private fun fallBackFromRemote(fromId: String?, why: String) {
+        if (!remoteMode) return
+        val queue = remoteQueue
+        val at = queue.indexOfFirst { it.id == fromId }.coerceAtLeast(0)
+        remoteMode = false
+        remoteJob?.cancel()
+        remoteJob = null
+        if (queue.isEmpty()) {
+            _messages.tryEmit(why)
+            return
+        }
+        playStandIns(queue, at, playContext, lead = "$why Carrying on through Spitify.")
+    }
+
     /** Back to playing on the phone. The Spotify app pauses so the two don't play over each other. */
     private fun leaveRemote() {
-        standInJob?.cancel()
         if (!remoteMode) return
         remoteMode = false
         remoteJob?.cancel()
@@ -622,10 +703,7 @@ class PlayerController(
     private fun publishRemote(rs: RemoteState) {
         if (!remoteMode) return
         if (!rs.connected) {
-            remoteMode = false
-            remoteJob?.cancel()
-            _messages.tryEmit("Lost the connection to the Spotify app")
-            sync()
+            fallBackFromRemote(_state.value.current?.id, "Lost the connection to the Spotify app.")
             return
         }
         val rt = rs.track ?: return
@@ -691,6 +769,7 @@ class PlayerController(
         broadcast(current, c.isPlaying, c.duration)
         if (current != null && current.id != lastRecordedId && c.playWhenReady) {
             lastRecordedId = current.id
+            standInNotes.remove(current.id)?.let { _messages.tryEmit(it) }
             if (!settings.current.privateSession) library.recordPlay(current)
             if (current.isRadio) scope.launch { radio.reportPlay(current) }
         }

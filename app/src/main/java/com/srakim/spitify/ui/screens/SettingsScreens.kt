@@ -473,6 +473,9 @@ private fun SettingsSectionPage(page: SettingsSection) {
 
             SettingsSection.PLAYBACK -> {
                 item {
+                    ToggleRow("Canvas", "Shows a looping visual made from the cover behind the song that's playing.", settings.canvas) { v -> set { it.copy(canvas = v) } }
+                }
+                item {
                     ToggleRow("Gapless playback", "Trims the silence between songs so one flows straight into the next.", settings.gapless) { v -> set { it.copy(gapless = v) } }
                 }
                 item {
@@ -596,6 +599,38 @@ private fun SettingsSectionPage(page: SettingsSection) {
                         "Bring your Spotify playlists and Liked Songs into Spitify",
                         onClick = actions::openImport,
                     )
+                }
+                item {
+                    val remote = app.spotifyRemote
+                    val rs by remote.state.collectAsStateWithLifecycle()
+                    SettingRow(
+                        when {
+                            rs.connected -> "Connected to Spotify"
+                            rs.connecting -> "Connecting to Spotify…"
+                            else -> "Connect to Spotify"
+                        },
+                        when {
+                            !remote.included -> "This version was built without Spotify playback"
+                            rs.connected && rs.canPlayOnDemand -> "Spotify songs play through the Spotify app. Tap to disconnect."
+                            rs.connected -> "Your Spotify account doesn't have Premium, so Spotify songs play the closest match from Spitify's sources. Tap to disconnect."
+                            rs.problem != null -> rs.problem
+                            else -> "Play Spotify songs through the Spotify app on this phone. Needs Spotify Premium."
+                        },
+                        onClick = {
+                            when {
+                                !remote.included -> actions.toast("This version was built without Spotify playback")
+                                rs.connected -> remote.disconnect()
+                                else -> remote.connect(context, app.spotifyImport.clientId, interactive = true)
+                            }
+                        },
+                    )
+                }
+                item {
+                    ToggleRow(
+                        "Play through Spotify",
+                        "When it's off, Spotify songs always play the closest match from Spitify's own sources.",
+                        settings.playThroughSpotify,
+                    ) { v -> set { it.copy(playThroughSpotify = v) } }
                 }
                 item {
                     SettingRow(
@@ -896,7 +931,7 @@ private fun SettingsSectionPage(page: SettingsSection) {
             text = {
                 Column {
                     Text(
-                        "The Client ID from your app on developer.spotify.com, with spitify://spotify-auth added as a Redirect URI. Leave it blank to use the one built into this version.",
+                        "The Client ID from your app on developer.spotify.com, with spitify://spotify-auth and spitify://spotify-remote added as Redirect URIs. Leave it blank to use the one built into this version.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(12.dp))

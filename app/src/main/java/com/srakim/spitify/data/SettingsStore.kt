@@ -114,6 +114,10 @@ data class AppSettings(
 
     /** Client id of Malcolm's Spotify developer app, for importing playlists. */
     val spotifyClientId: String = "",
+    /** Spotify songs play inside the Spotify app when it's connected and the account has Premium. */
+    val playThroughSpotify: Boolean = true,
+    /** The looping visual behind the player. */
+    val canvas: Boolean = true,
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

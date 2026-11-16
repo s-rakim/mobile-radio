@@ -21,3 +21,6 @@ keystore/
 *.keystore
 *.zip
 server/data/
+
+# Spotify's SDK is downloaded at build time, not committed
+app/libs/*.aar

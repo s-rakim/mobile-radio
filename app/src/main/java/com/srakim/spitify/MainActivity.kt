@@ -48,6 +48,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Quietly reconnect to the Spotify app each time Spitify comes to the front. No sign-in
+    // screens here: the first connect is done from Settings, and this only picks it back up.
+    override fun onStart() {
+        super.onStart()
+        val app = application as SpitifyApp
+        val id = app.spotifyImport.clientId
+        if (app.settings.current.playThroughSpotify && id.isNotBlank() && app.spotifyRemote.isSpotifyInstalled(this)) {
+            app.spotifyRemote.connect(this, id, interactive = false)
+        }
+    }
+
     // The activity is singleTask, so a Jam, collab, profile or Spotify sign-in link tapped while Spitify is open lands here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

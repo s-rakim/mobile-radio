@@ -21,6 +21,11 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Android 11+ hides other apps unless we say which ones we talk to: the Spotify app, for playback. -->
+    <queries>
+        <package android:name="com.spotify.music" />
+    </queries>
+
     <application
         android:name=".SpitifyApp"
         android:allowBackup="true"

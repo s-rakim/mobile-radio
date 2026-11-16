@@ -142,6 +142,42 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         out
     }
 
+    // ---------- Spotify's catalogue, for playing through the Spotify app ----------
+
+    /**
+     * Songs from Spotify's search. Their ids are Spotify URIs ("spotify:track:…"), which the
+     * player hands to the Spotify app, or swaps for a match from Spitify's sources when the
+     * Spotify app can't play them (no Premium, not installed, not connected).
+     */
+    suspend fun searchTracks(query: String, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+        if (token() == null || query.isBlank()) return@withContext emptyList()
+        val url = "https://api.spotify.com/v1/search?type=track&limit=$limit&q=" + Uri.encode(query.trim())
+        val items = api(url).jsonObject["tracks"]?.jsonObject?.get("items")?.jsonArray.orEmpty()
+        items.mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+    }
+
+    private fun toTrack(t: JsonObject): Track? {
+        val uri = t.str("uri") ?: return null
+        val album = t["album"] as? JsonObject
+        val images = (album?.get("images") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
+        val artists = (t["artists"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+        return Track(
+            id = uri,
+            title = t.str("name") ?: return null,
+            artist = artists.mapNotNull { it.str("name") }.joinToString(", "),
+            // Spotify lists the biggest image first: 640, then 300, then 64.
+            artwork = images.getOrNull(1) ?: images.firstOrNull(),
+            artworkLarge = images.firstOrNull(),
+            durationSec = ((t.str("duration_ms")?.toLongOrNull() ?: 0) / 1000).toInt(),
+            link = (t["external_urls"] as? JsonObject)?.str("spotify"),
+            album = album?.str("name"),
+        )
+    }
+
+    /** The closest song in Spitify's own sources, for when Spotify can't play [track]. */
+    suspend fun standInFor(track: Track, catalog: Catalog): Track? =
+        runCatching { bestMatch(SourceTrack(track.title, track.artist, track.durationSec * 1000L), catalog) }.getOrNull()
+
     private fun api(url: String): JsonElement {
         val t = token() ?: throw IOException("Sign in to Spotify again")
         return execute(Request.Builder().url(url).header("Authorization", "Bearer $t").build())
@@ -322,6 +358,9 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     companion object {
         const val REDIRECT = "spitify://spotify-auth"
+        const val TRACK_PREFIX = "spotify:track:"
+
+        fun isSpotify(id: String) = id.startsWith(TRACK_PREFIX)
         const val LIKED = "liked"
         private const val KEY_VERIFIER = "verifier"
         private const val KEY_STATE = "state"

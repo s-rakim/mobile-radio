@@ -67,7 +67,10 @@ class SpotifyLibrary(private val spotify: SpotifyImport) {
                 recent = recent.await().getOrDefault(_state.value.recent),
                 topTracks = topTracks.await().getOrDefault(_state.value.topTracks),
                 topArtists = topArtists.await().getOrDefault(_state.value.topArtists),
-                error = if (results.all { it.isFailure }) firstError else null,
+                // Your playlists and likes are what you came for, so say why when those fail.
+                error = playlists.await().exceptionOrNull()?.message
+                    ?: liked.await().exceptionOrNull()?.message
+                    ?: if (results.all { it.isFailure }) firstError else null,
             )
         }
     }

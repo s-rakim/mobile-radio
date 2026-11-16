@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -57,6 +58,29 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
     /** Flips when you sign in or out, so Home and Library can switch to your Spotify account. */
     val signedIn = kotlinx.coroutines.flow.MutableStateFlow(hasToken)
 
+    sealed interface SignIn {
+        data object Idle : SignIn
+        data object Working : SignIn
+        data object Done : SignIn
+        data class Failed(val message: String) : SignIn
+    }
+
+    /** Where the last sign-in got to, for the screens to show. */
+    val signIn = kotlinx.coroutines.flow.MutableStateFlow<SignIn>(SignIn.Idle)
+
+    // Sign-in runs here, not on a screen, so leaving or redrawing a screen can't cut it off
+    // halfway (Spotify's code only works once, so a cut-off exchange meant signing in again).
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /** Called with what Spotify sent back to spitify://spotify-auth. */
+    fun completeSignIn(code: String?, state: String?, error: String?) {
+        signIn.value = SignIn.Working
+        scope.launch {
+            signIn.value = runCatching { finishSignIn(code, state, error) }
+                .fold({ SignIn.Done }, { SignIn.Failed(it.message ?: "Spotify sign-in didn't finish. Try again.") })
+        }
+    }
+
     // ---------- Sign in with Spotify ----------
 
     /** The page to open in the browser. Spotify sends the browser back to spitify://spotify-auth. */
@@ -89,7 +113,18 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             .add("client_id", clientId)
             .add("code_verifier", prefs.getString(KEY_VERIFIER, "").orEmpty())
             .build()
-        val reply = execute(Request.Builder().url("https://accounts.spotify.com/api/token").post(body).build()).jsonObject
+        val reply = runCatching { execute(Request.Builder().url("https://accounts.spotify.com/api/token").post(body).build()).jsonObject }
+            .getOrElse { e ->
+                val m = e.message.orEmpty()
+                throw IOException(
+                    when {
+                        m.contains("invalid_grant", true) || m.contains("authorization code", true) -> "That sign-in expired before it finished. Tap Sign in with Spotify again."
+                        m.contains("invalid_client", true) -> "Spotify doesn't recognise the app id. Check it in Settings → Apps and devices → Spotify app id."
+                        m.contains("redirect", true) -> "Add spitify://spotify-auth as a Redirect URI on your Spotify developer dashboard, then sign in again."
+                        else -> "Spotify sign-in failed: $m"
+                    },
+                )
+            }
         val access = reply["access_token"]?.jsonPrimitive?.contentOrNull ?: throw IOException("Spotify didn't hand over a token")
         val expires = reply["expires_in"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 3600
         prefs.edit()
@@ -386,23 +421,47 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     private fun api(url: String): JsonElement {
         val t = freshToken() ?: throw IOException("Sign in to Spotify again")
-        return execute(Request.Builder().url(url).header("Authorization", "Bearer $t").build())
+        return try {
+            execute(Request.Builder().url(url).header("Authorization", "Bearer $t").build())
+        } catch (e: Expired) {
+            // The access token died early: get a new one and try once more.
+            val again = freshToken() ?: throw IOException("Spotify signed you out. Sign in again in Settings → Apps and devices.")
+            execute(Request.Builder().url(url).header("Authorization", "Bearer $again").build())
+        }
     }
+
+    private class Expired : IOException("Spotify session expired")
 
     private fun execute(request: Request): JsonElement = client.newCall(request).execute().use { r ->
         val text = r.body?.string().orEmpty()
-        if (r.code == 401) {
-            // The access token died early; the next call refreshes it.
+        if (r.code == 401 && request.header("Authorization") != null) {
             prefs.edit().remove(KEY_TOKEN).apply()
-            throw IOException("Spotify needs a moment. Try again.")
+            throw Expired()
         }
         if (!r.isSuccessful) {
-            val msg = runCatching { json.parseToJsonElement(text).jsonObject["error"] }.getOrNull()?.let {
-                (it as? JsonObject)?.str("message") ?: (it as? JsonPrimitive)?.contentOrNull
-            }
-            throw IOException(msg ?: "Spotify answered with ${r.code}")
+            val body = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+            val err = body?.get("error")
+            val msg = (err as? JsonObject)?.str("message")
+                ?: listOfNotNull((err as? JsonPrimitive)?.contentOrNull, body?.str("error_description")).joinToString(": ").ifBlank { null }
+            throw IOException(explain(r.code, msg))
         }
         json.parseToJsonElement(text)
+    }
+
+    /** Spotify's error, in words that say what to do about it. */
+    private fun explain(code: Int, msg: String?): String {
+        val m = msg.orEmpty()
+        return when {
+            code == 403 && m.contains("not registered", true) ->
+                "Spotify hasn't let this account into your developer app yet. On developer.spotify.com open the app → User Management, add the name and email of the Spotify account you sign in with, then sign in again."
+            code == 403 && m.contains("scope", true) ->
+                "Spitify needs a few more Spotify permissions. Sign out and sign in again in Settings → Apps and devices."
+            code == 403 -> "Spotify said no (403${if (m.isNotBlank()) ": $m" else ""}). If you're the only user, add your account under User Management on the Spotify developer dashboard."
+            code == 429 -> "Spotify is rate limiting Spitify. Wait a minute and try again."
+            code >= 500 -> "Spotify is having trouble right now (${code}). Try again in a bit."
+            m.isNotBlank() -> m
+            else -> "Spotify answered with $code"
+        }
     }
 
     // ---------- Files and pasted text ----------

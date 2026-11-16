@@ -294,6 +294,37 @@ fun LibraryScreen() {
             }
         }
 
+        // Signed in to Spotify but its music didn't load: say why and offer a retry, instead
+        // of leaving the list quietly empty.
+        if (spotifyLib.signedIn && (spotifyLib.error != null || (spotifyLib.loading && spotifyLib.playlists.isEmpty()))) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                val app = com.srakim.spitify.ui.LocalApp.current
+                Row(
+                    Modifier
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SpitifyColors.Elevated)
+                        .clickable(enabled = !spotifyLib.loading) { app.spotifyLibrary.refresh(force = true) }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (spotifyLib.loading) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = SpitifyColors.Accent, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Loading your Spotify music…", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Column(Modifier.weight(1f)) {
+                            Text("Couldn't load your Spotify music", style = MaterialTheme.typography.titleSmall)
+                            Text(spotifyLib.error.orEmpty(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text("Retry", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.Accent)
+                    }
+                }
+            }
+        }
+
         if (dl.downloaded.isNotEmpty() && filter == null) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(

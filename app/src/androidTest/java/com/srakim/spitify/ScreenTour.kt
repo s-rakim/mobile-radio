@@ -146,6 +146,22 @@ class ScreenTour {
                     shot("12-now-playing", 5000)
                     scrollDown()
                     shot("13-now-playing-below")
+                    device.pressBack()
+                }
+                // A Spotify song with no Spotify app on the phone: Spitify should find it in
+                // its own sources and play it, not stop with an error.
+                step {
+                    val t = tracks.first()
+                    val fromSpotify = t.copy(id = "spotify:track:tour${t.id.takeLast(8)}")
+                    instrumentation.runOnMainSync { app.player.play(listOf(fromSpotify), 0, PlayContext("tour", "Tour", "PLAYLIST")) }
+                    var playing: String? = null
+                    repeat(30) {
+                        if (playing == null) {
+                            Thread.sleep(500)
+                            playing = app.player.state.value.current?.id?.takeUnless { it.startsWith("spotify:") }
+                        }
+                    }
+                    shot(if (playing != null) "14-spotify-song-played-by-spitify" else "14-spotify-song-NOT-PLAYED", 3000)
                 }
             }
         }

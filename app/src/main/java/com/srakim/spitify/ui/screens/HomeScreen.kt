@@ -1,5 +1,7 @@
 package com.srakim.spitify.ui.screens
 
+import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.runtime.LaunchedEffect
 
 import androidx.compose.ui.text.style.TextOverflow
@@ -587,7 +589,7 @@ private fun PickedForYou(track: Track, pool: List<Track>) {
                 Spacer(Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Icon(
-                        if (liked) androidx.compose.material.icons.Icons.Rounded.CheckCircle else androidx.compose.material.icons.Icons.Rounded.AddCircleOutline,
+                        if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
                         contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
                         tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextSecondary,
                         modifier = Modifier.size(26.dp).clickable { library.toggleLike(track) },

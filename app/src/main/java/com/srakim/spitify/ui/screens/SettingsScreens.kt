@@ -212,7 +212,14 @@ private fun SettingsHub() {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(settings.profileName.ifBlank { acct.username ?: "Your profile" }, style = MaterialTheme.typography.titleMedium)
-                    Text(if (acct.signedIn) "View profile" else "Add your name and photo", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        when {
+                            acct.signedIn -> "View profile"
+                            settings.profileName.isNotBlank() || settings.profilePhoto > 0 -> "Edit name and photo"
+                            else -> "Add your name and photo"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
             }

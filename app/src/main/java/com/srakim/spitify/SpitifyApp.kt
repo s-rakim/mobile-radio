@@ -53,7 +53,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val ccMixter: com.srakim.spitify.data.CcMixterApi by lazy { com.srakim.spitify.data.CcMixterApi(httpClient, settings) }
     val jamendo: com.srakim.spitify.data.JamendoApi by lazy { com.srakim.spitify.data.JamendoApi(httpClient, settings) }
     val soundCloud: com.srakim.spitify.data.SoundCloudApi by lazy { com.srakim.spitify.data.SoundCloudApi(httpClient, settings) }
-    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings, archive, ccMixter, jamendo, soundCloud) }
+    val catalog: Catalog by lazy { Catalog(api, server, webServer, radio, localMusic, settings, archive, ccMixter, jamendo, soundCloud).also { it.spotify = spotifyImport } }
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
@@ -72,6 +72,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val stats: ListeningStats by lazy { ListeningStats(this, settings) }
     val nearby: NearbyJam by lazy { NearbyJam(this) }
     val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy { com.srakim.spitify.data.SpotifyImport(this, httpClient, settings) }
+    val spotifyLibrary: com.srakim.spitify.data.SpotifyLibrary by lazy { com.srakim.spitify.data.SpotifyLibrary(spotifyImport) }
     val dj: com.srakim.spitify.data.AiDj by lazy { com.srakim.spitify.data.AiDj(this) }
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -87,6 +88,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
         social.start()
         stats.start(player, social)
         dj.start()
+        spotifyLibrary.start()
         // Friends see what you're playing: tell the server when the song or play state changes,
         // and every couple of minutes while it keeps playing so it still shows as live.
         appScope.launch {

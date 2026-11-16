@@ -225,12 +225,18 @@ fun SpitifyRoot(app: SpitifyApp) {
                 }
             }
             is Links.Link.User -> actions.openProfile(l.name)
+            is Links.Link.Playlist -> actions.openPlaylist(l.id)
+            is Links.Link.Artist -> actions.openArtist(l.id)
+            Links.Link.Player -> if (app.player.state.value.current != null) playerOpen = true
             is Links.Link.SpotifyAuth -> {
                 runCatching { app.spotifyImport.finishSignIn(l.code, l.state, l.error) }
                     .onSuccess {
-                        actions.toast("Signed in to Spotify")
-                        if (nav.currentBackStackEntry?.destination?.route?.endsWith("/${Dest.IMPORT}") == true) nav.popBackStack()
-                        actions.openImport()
+                        actions.toast("Signed in to Spotify. Your music is loading.")
+                        // Only jump back into Import if that's where the sign-in started.
+                        if (nav.currentBackStackEntry?.destination?.route?.endsWith("/${Dest.IMPORT}") == true) {
+                            nav.popBackStack()
+                            actions.openImport()
+                        }
                     }
                     .onFailure { actions.toast(it.message ?: "Spotify sign-in didn't finish") }
             }

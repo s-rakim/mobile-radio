@@ -51,7 +51,11 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
     val clientId: String
         get() = settings.current.spotifyClientId.trim().ifBlank { com.srakim.spitify.BuildConfig.SPOTIFY_CLIENT_ID }
 
-    val hasToken: Boolean get() = token() != null
+    /** Signed in, even if the current access token has run out (it gets refreshed on use). */
+    val hasToken: Boolean get() = token() != null || prefs.getString(KEY_REFRESH, null) != null
+
+    /** Flips when you sign in or out, so Home and Library can switch to your Spotify account. */
+    val signedIn = kotlinx.coroutines.flow.MutableStateFlow(hasToken)
 
     // ---------- Sign in with Spotify ----------
 
@@ -71,7 +75,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("state", state)
-            .appendQueryParameter("scope", "playlist-read-private playlist-read-collaborative user-library-read")
+            .appendQueryParameter("scope", SCOPES)
             .build()
     }
 
@@ -91,13 +95,49 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         prefs.edit()
             .putString(KEY_TOKEN, access)
             .putLong(KEY_EXPIRES, System.currentTimeMillis() + expires * 1000 - 60_000)
+            .apply { reply["refresh_token"]?.jsonPrimitive?.contentOrNull?.let { putString(KEY_REFRESH, it) } }
             .remove(KEY_VERIFIER)
             .apply()
+        signedIn.value = true
     }
 
-    fun signOut() = prefs.edit().clear().apply()
+    fun signOut() {
+        prefs.edit().clear().apply()
+        signedIn.value = false
+    }
 
     private fun token(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf { System.currentTimeMillis() < prefs.getLong(KEY_EXPIRES, 0) }
+
+    /** Access tokens last an hour. The refresh token from sign-in gets a new one without asking. */
+    @Synchronized
+    private fun freshToken(): String? {
+        token()?.let { return it }
+        val refresh = prefs.getString(KEY_REFRESH, null) ?: return null
+        val body = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refresh)
+            .add("client_id", clientId)
+            .build()
+        val reply = runCatching {
+            client.newCall(Request.Builder().url("https://accounts.spotify.com/api/token").post(body).build()).execute().use { r ->
+                if (r.code == 400 || r.code == 401) {
+                    // Refresh token revoked: really signed out now.
+                    signOut()
+                    return null
+                }
+                if (!r.isSuccessful) return null
+                json.parseToJsonElement(r.body?.string().orEmpty()).jsonObject
+            }
+        }.getOrNull() ?: return null
+        val access = reply["access_token"]?.jsonPrimitive?.contentOrNull ?: return null
+        val expires = reply["expires_in"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 3600
+        prefs.edit()
+            .putString(KEY_TOKEN, access)
+            .putLong(KEY_EXPIRES, System.currentTimeMillis() + expires * 1000 - 60_000)
+            .apply { reply["refresh_token"]?.jsonPrimitive?.contentOrNull?.let { putString(KEY_REFRESH, it) } }
+            .apply()
+        return access
+    }
 
     /** Your Spotify playlists, plus Liked Songs first. Track lists load when you pick one. */
     suspend fun myPlaylists(): List<SourcePlaylist> = withContext(Dispatchers.IO) {
@@ -150,14 +190,14 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
      * Spotify app can't play them (no Premium, not installed, not connected).
      */
     suspend fun searchTracks(query: String, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
-        if (token() == null || query.isBlank()) return@withContext emptyList()
+        if (!hasToken || query.isBlank()) return@withContext emptyList()
         val url = "https://api.spotify.com/v1/search?type=track&limit=$limit&q=" + Uri.encode(query.trim())
         val items = api(url).jsonObject["tracks"]?.jsonObject?.get("items")?.jsonArray.orEmpty()
         items.mapNotNull { (it as? JsonObject)?.let(::toTrack) }
     }
 
     private fun toTrack(t: JsonObject): Track? {
-        val uri = t.str("uri") ?: return null
+        val uri = t.str("uri")?.takeIf { it.startsWith(TRACK_PREFIX) } ?: return null
         val album = t["album"] as? JsonObject
         val images = (album?.get("images") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
         val artists = (t["artists"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
@@ -171,6 +211,172 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             durationSec = ((t.str("duration_ms")?.toLongOrNull() ?: 0) / 1000).toInt(),
             link = (t["external_urls"] as? JsonObject)?.str("spotify"),
             album = album?.str("name"),
+            albumId = album?.str("uri"),
+            artistId = artists.firstOrNull()?.str("uri").orEmpty(),
+        )
+    }
+
+    // ---------- Your Spotify account, shown in Spitify's own pages ----------
+    // Ids keep Spotify's URI form ("spotify:playlist:…", "spotify:album:…", "spotify:artist:…")
+    // so Catalog knows to send them here.
+
+    suspend fun likedSongs(max: Int = 500): List<Track> = withContext(Dispatchers.IO) {
+        pagedTracks("https://api.spotify.com/v1/me/tracks?limit=50", max)
+    }
+
+    suspend fun recentlyPlayed(): List<Track> = withContext(Dispatchers.IO) {
+        api("https://api.spotify.com/v1/me/player/recently-played?limit=50").jsonObject["items"]?.jsonArray.orEmpty()
+            .mapNotNull { ((it as? JsonObject)?.get("track") as? JsonObject)?.let(::toTrack) }
+            .distinctBy { it.id }
+    }
+
+    suspend fun topTracks(): List<Track> = withContext(Dispatchers.IO) {
+        api("https://api.spotify.com/v1/me/top/tracks?limit=30&time_range=short_term").jsonObject["items"]?.jsonArray.orEmpty()
+            .mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+    }
+
+    suspend fun topArtists(): List<Artist> = withContext(Dispatchers.IO) {
+        api("https://api.spotify.com/v1/me/top/artists?limit=20&time_range=medium_term").jsonObject["items"]?.jsonArray.orEmpty()
+            .mapNotNull { (it as? JsonObject)?.let(::toArtist) }
+    }
+
+    suspend fun followedArtists(): List<Artist> = withContext(Dispatchers.IO) {
+        api("https://api.spotify.com/v1/me/following?type=artist&limit=50").jsonObject["artists"]?.jsonObject?.get("items")?.jsonArray.orEmpty()
+            .mapNotNull { (it as? JsonObject)?.let(::toArtist) }
+    }
+
+    /** Your playlists as cards (no tracks yet). */
+    suspend fun playlists(): List<Playlist> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<Playlist>()
+        var next: String? = "https://api.spotify.com/v1/me/playlists?limit=50"
+        while (next != null && out.size < 200) {
+            val page = api(next).jsonObject
+            page["items"]?.jsonArray?.forEach { item -> (item as? JsonObject)?.let(::toPlaylist)?.let { out += it } }
+            next = page.str("next")
+        }
+        out
+    }
+
+    suspend fun savedAlbums(): List<Playlist> = withContext(Dispatchers.IO) {
+        api("https://api.spotify.com/v1/me/albums?limit=50").jsonObject["items"]?.jsonArray.orEmpty()
+            .mapNotNull { ((it as? JsonObject)?.get("album") as? JsonObject)?.let(::toAlbum) }
+    }
+
+    /** A playlist or album page. [uri] is "spotify:playlist:…" or "spotify:album:…". */
+    suspend fun collection(uri: String): Pair<Playlist?, List<Track>> = withContext(Dispatchers.IO) {
+        val id = uri.substringAfterLast(':')
+        if (uri.startsWith(ALBUM_PREFIX)) {
+            val o = api("https://api.spotify.com/v1/albums/$id").jsonObject
+            val album = toAlbum(o)
+            val images = (o["images"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
+            val items = (o["tracks"] as? JsonObject)?.get("items")?.jsonArray.orEmpty()
+            // Album tracks come without the album attached, so give each one the cover.
+            val tracks = items.mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+                .map { it.copy(artwork = images.getOrNull(1) ?: images.firstOrNull(), artworkLarge = images.firstOrNull(), album = album?.name, albumId = uri) }
+            album to tracks
+        } else {
+            val o = api("https://api.spotify.com/v1/playlists/$id?fields=id,uri,name,description,images,owner(display_name,id),followers(total),external_urls").jsonObject
+            o.let(::toPlaylist) to pagedTracks("https://api.spotify.com/v1/playlists/$id/tracks?limit=100", 500, fallback = "https://api.spotify.com/v1/playlists/$id/items?limit=100")
+        }
+    }
+
+    /** An artist's page: who they are, their ten most played songs, and their releases. */
+    suspend fun artistPage(uri: String): Triple<Artist?, List<Track>, List<Playlist>> = coroutineScope {
+        val id = uri.substringAfterLast(':')
+        val info = async(Dispatchers.IO) { runCatching { toArtist(api("https://api.spotify.com/v1/artists/$id").jsonObject) }.getOrNull() }
+        val top = async(Dispatchers.IO) {
+            runCatching {
+                api("https://api.spotify.com/v1/artists/$id/top-tracks?market=from_token").jsonObject["tracks"]?.jsonArray.orEmpty()
+                    .mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+            }.getOrDefault(emptyList())
+        }
+        val releases = async(Dispatchers.IO) {
+            runCatching {
+                api("https://api.spotify.com/v1/artists/$id/albums?include_groups=album,single&limit=30").jsonObject["items"]?.jsonArray.orEmpty()
+                    .mapNotNull { (it as? JsonObject)?.let(::toAlbum) }
+            }.getOrDefault(emptyList())
+        }
+        Triple(info.await(), top.await(), releases.await())
+    }
+
+    /** Spotify's search across songs, artists, albums and playlists. */
+    suspend fun searchAll(query: String): SearchResults = withContext(Dispatchers.IO) {
+        if (!hasToken || query.isBlank()) return@withContext SearchResults.Empty
+        val o = api("https://api.spotify.com/v1/search?type=track,artist,album,playlist&limit=10&q=" + Uri.encode(query.trim())).jsonObject
+        fun items(key: String) = (o[key] as? JsonObject)?.get("items")?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+        SearchResults(
+            tracks = items("tracks").mapNotNull(::toTrack),
+            artists = items("artists").mapNotNull(::toArtist),
+            playlists = items("albums").mapNotNull(::toAlbum) + items("playlists").mapNotNull(::toPlaylist),
+        )
+    }
+
+    private fun pagedTracks(first: String, max: Int, fallback: String? = null): List<Track> {
+        val out = mutableListOf<Track>()
+        var next: String? = first
+        while (next != null && out.size < max) {
+            val url = next
+            val page = runCatching { api(url).jsonObject }.getOrElse { e ->
+                if (url == first && fallback != null) api(fallback).jsonObject else throw e
+            }
+            page["items"]?.jsonArray?.forEach { item ->
+                val o = item as? JsonObject ?: return@forEach
+                val t = (o["track"] ?: o["item"]) as? JsonObject ?: return@forEach
+                toTrack(t)?.let { out += it }
+            }
+            next = page.str("next")
+        }
+        return out
+    }
+
+    private fun images(o: JsonObject): List<String> =
+        (o["images"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
+
+    private fun toArtist(o: JsonObject): Artist? {
+        val uri = o.str("uri") ?: return null
+        val img = images(o)
+        return Artist(
+            id = uri,
+            name = o.str("name") ?: return null,
+            picture = img.getOrNull(1) ?: img.firstOrNull(),
+            pictureLarge = img.firstOrNull(),
+            cover = img.firstOrNull(),
+            followers = (o["followers"] as? JsonObject)?.str("total")?.toIntOrNull() ?: 0,
+        )
+    }
+
+    private fun toPlaylist(o: JsonObject): Playlist? {
+        val uri = o.str("uri") ?: return null
+        val img = images(o)
+        val owner = o["owner"] as? JsonObject
+        return Playlist(
+            id = uri,
+            name = o.str("name") ?: return null,
+            owner = owner?.str("display_name") ?: "Spotify",
+            artwork = img.firstOrNull(),
+            trackCount = ((o["tracks"] ?: o["items"]) as? JsonObject)?.str("total")?.toIntOrNull() ?: 0,
+            // Spotify sends descriptions with HTML entities and links in them.
+            description = o.str("description")?.replace(Regex("<[^>]+>"), "")?.replace("&amp;", "&")?.replace("&#x27;", "'")?.replace("&quot;", "\"")?.takeIf { it.isNotBlank() },
+            link = (o["external_urls"] as? JsonObject)?.str("spotify"),
+            saves = (o["followers"] as? JsonObject)?.str("total")?.toIntOrNull() ?: 0,
+        )
+    }
+
+    private fun toAlbum(o: JsonObject): Playlist? {
+        val uri = o.str("uri") ?: return null
+        val img = images(o)
+        val artist = (o["artists"] as? JsonArray)?.firstOrNull() as? JsonObject
+        val type = o.str("album_type")
+        return Playlist(
+            id = uri,
+            name = o.str("name") ?: return null,
+            owner = artist?.str("name").orEmpty(),
+            artwork = img.firstOrNull(),
+            trackCount = o.str("total_tracks")?.toIntOrNull() ?: 0,
+            label = when (type) { "single" -> "Single"; "compilation" -> "Compilation"; else -> "Album" },
+            link = (o["external_urls"] as? JsonObject)?.str("spotify"),
+            ownerId = artist?.str("uri").orEmpty(),
+            year = o.str("release_date")?.take(4),
         )
     }
 
@@ -179,15 +385,16 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         runCatching { bestMatch(SourceTrack(track.title, track.artist, track.durationSec * 1000L), catalog) }.getOrNull()
 
     private fun api(url: String): JsonElement {
-        val t = token() ?: throw IOException("Sign in to Spotify again")
+        val t = freshToken() ?: throw IOException("Sign in to Spotify again")
         return execute(Request.Builder().url(url).header("Authorization", "Bearer $t").build())
     }
 
     private fun execute(request: Request): JsonElement = client.newCall(request).execute().use { r ->
         val text = r.body?.string().orEmpty()
         if (r.code == 401) {
+            // The access token died early; the next call refreshes it.
             prefs.edit().remove(KEY_TOKEN).apply()
-            throw IOException("Spotify signed you out. Sign in again.")
+            throw IOException("Spotify needs a moment. Try again.")
         }
         if (!r.isSuccessful) {
             val msg = runCatching { json.parseToJsonElement(text).jsonObject["error"] }.getOrNull()?.let {
@@ -361,10 +568,18 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         const val TRACK_PREFIX = "spotify:track:"
 
         fun isSpotify(id: String) = id.startsWith(TRACK_PREFIX)
+        const val ALBUM_PREFIX = "spotify:album:"
+        const val PLAYLIST_PREFIX = "spotify:playlist:"
+        const val ARTIST_PREFIX = "spotify:artist:"
+        fun isSpotifyCollection(id: String) = id.startsWith(ALBUM_PREFIX) || id.startsWith(PLAYLIST_PREFIX)
+        fun isSpotifyArtist(id: String) = id.startsWith(ARTIST_PREFIX)
         const val LIKED = "liked"
         private const val KEY_VERIFIER = "verifier"
         private const val KEY_STATE = "state"
         private const val KEY_TOKEN = "token"
+        private const val KEY_REFRESH = "refresh"
+        private const val SCOPES = "playlist-read-private playlist-read-collaborative user-library-read " +
+            "user-top-read user-read-recently-played user-follow-read user-read-private"
         private const val KEY_EXPIRES = "expires"
     }
 }

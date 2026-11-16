@@ -108,7 +108,14 @@ class Catalog(
         return withTimeoutOrNull(RADIO_TIMEOUT_MS) { runCatching { radio.search(q) }.getOrNull() }.orEmpty()
     }
 
+    /** Set by the app once Spotify sign-in exists, so Spotify pages open from the same screens. */
+    var spotify: SpotifyImport? = null
+
     suspend fun artist(id: String): Pair<Artist?, List<Track>> = coroutineScope {
+        if (SpotifyImport.isSpotifyArtist(id)) {
+            val page = spotify?.artistPage(id) ?: return@coroutineScope null to emptyList()
+            return@coroutineScope page.first to page.second
+        }
         if (SubsonicApi.isServer(id)) return@coroutineScope server.artist(id)
         if (JamendoApi.isJamendo(id)) {
             val info = async { jamendo.artist(id) }
@@ -120,7 +127,21 @@ class Catalog(
         info.await() to tracks.await()
     }
 
+    /** Albums and singles for the artist page's Discography. */
+    suspend fun releases(id: String): List<Playlist> = when {
+        SpotifyImport.isSpotifyArtist(id) -> spotify?.artistPage(id)?.third.orEmpty()
+        SubsonicApi.isServer(id) || JamendoApi.isJamendo(id) -> emptyList()
+        else -> runCatching { audius.artistAlbums(id) }.getOrDefault(emptyList())
+    }
+
+    /** "Fans also like". Spotify closed this to new apps, so it's Audius only. */
+    suspend fun related(id: String): List<Artist> = when {
+        SpotifyImport.isSpotifyArtist(id) || SubsonicApi.isServer(id) || JamendoApi.isJamendo(id) -> emptyList()
+        else -> runCatching { audius.relatedArtists(id) }.getOrDefault(emptyList())
+    }
+
     suspend fun playlist(id: String): Pair<Playlist?, List<Track>> = coroutineScope {
+        if (SpotifyImport.isSpotifyCollection(id)) return@coroutineScope spotify?.collection(id) ?: (null to emptyList())
         if (SubsonicApi.isServer(id)) return@coroutineScope server.playlist(id)
         if (ArchiveApi.isArchive(id)) return@coroutineScope archive.album(id)
         val info = async { audius.playlist(id) }

@@ -65,6 +65,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -244,47 +245,47 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 }
             }
             val cover: @Composable (Modifier) -> Unit = { coverModifier ->
-                // Cover follows a sideways swipe, sits back a little while paused, and the next
-                // cover scales up into place when the song changes.
-                val dragX = remember { Animatable(0f) }
+                // Swipe the cover like Spotify: the next song's cover slides in from the right
+                // and lands as the new track, a swipe right goes back. The cover sits back a
+                // little while paused.
                 val coverScale by animateFloatAsState(
-                    if (state.isPlaying) 1f else 0.86f,
+                    if (state.isPlaying) 1f else 0.88f,
                     spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
                     label = "coverScale",
                 )
-                AnimatedContent(
-                    targetState = track,
-                    contentKey = { it.id },
-                    transitionSpec = {
-                        (fadeIn(tween(Motion.SLOW)) + scaleIn(Motion.settle(), initialScale = 0.9f)) togetherWith
-                            fadeOut(tween(Motion.FAST))
-                    },
-                    modifier = coverModifier
-                        .graphicsLayer {
-                            translationX = dragX.value
-                            rotationZ = dragX.value / 90f
-                            scaleX = coverScale
-                            scaleY = coverScale
+                val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = 1) { 3 }
+                val nextTrack = state.upNext.firstOrNull()?.track
+                LaunchedEffect(pager) {
+                    snapshotFlow { pager.settledPage }.collect { page ->
+                        when (page) {
+                            2 -> player.next()
+                            0 -> player.previous()
                         }
-                        .pointerInput(track.id) {
-                            detectHorizontalDragGestures(
-                                onDragEnd = {
-                                    val moved = dragX.value
-                                    if (moved < -140f) player.next() else if (moved > 140f) player.previous()
-                                    scope.launch { dragX.animateTo(0f, Motion.press()) }
-                                },
-                                onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.press()) } },
-                            ) { change, amount ->
-                                change.consume()
-                                scope.launch { dragX.snapTo(dragX.value + amount * 0.9f) }
-                            }
-                        },
-                    label = "cover",
-                ) { shown ->
+                    }
+                }
+                // Whatever caused the change, come back to the middle page showing the new song.
+                LaunchedEffect(track.id) { if (pager.currentPage != 1) pager.scrollToPage(1) }
+                androidx.compose.foundation.pager.HorizontalPager(
+                    state = pager,
+                    modifier = coverModifier,
+                    pageSpacing = 24.dp,
+                    beyondViewportPageCount = 1,
+                    key = { it },
+                ) { page ->
+                    val shown = when (page) {
+                        2 -> nextTrack ?: track
+                        else -> track
+                    }
                     Artwork(
                         url = shown.artworkLarge ?: shown.artwork,
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer {
+                                val scale = if (page == 1) coverScale else 0.92f
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = if (page == 0) 0.5f else 1f
+                            }
                             .shadow(32.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
                         shape = RoundedCornerShape(8.dp),
                         contentDescription = "Artwork for ${shown.title}",

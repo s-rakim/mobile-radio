@@ -60,6 +60,9 @@
                 <data android:scheme="spitify" android:host="collab" />
                 <data android:scheme="spitify" android:host="user" />
                 <data android:scheme="spitify" android:host="spotify-auth" />
+                <data android:scheme="spitify" android:host="playlist" />
+                <data android:scheme="spitify" android:host="album" />
+                <data android:scheme="spitify" android:host="artist" />
             </intent-filter>
         </activity>
 

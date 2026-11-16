@@ -85,6 +85,20 @@ class AudiusApi(private val client: OkHttpClient) {
         return all.distinctBy { it.id }.sortedByDescending { it.playCount }.toTracks()
     }
 
+    /** The artist's albums, newest first. */
+    suspend fun artistAlbums(id: String): List<Playlist> =
+        fetch("/v1/users/$id/albums", mapOf("limit" to "20")).decodeList<ApiPlaylist>()
+            .map { it.toPlaylist().copy(label = "Album") }
+            .sortedByDescending { it.year.orEmpty() }
+
+    /** Playlists the artist made. */
+    suspend fun artistPlaylists(id: String): List<Playlist> =
+        fetch("/v1/users/$id/playlists", mapOf("limit" to "20")).decodeList<ApiPlaylist>().map { it.toPlaylist() }
+
+    /** Artists with a similar following, for "Fans also like". */
+    suspend fun relatedArtists(id: String): List<Artist> =
+        fetch("/v1/users/$id/related", mapOf("limit" to "12")).decodeList<ApiUser>().map { it.toArtist() }
+
     /** Full record for one song, used by the credits sheet and Go to album. */
     suspend fun trackDetails(id: String): TrackDetails? {
         val element = fetch("/v1/tracks/$id") ?: return null
@@ -212,6 +226,10 @@ internal data class ApiPlaylist(
     val artwork: ApiArtwork? = null,
     val user: ApiUser? = null,
     @SerialName("track_count") val trackCount: Int = 0,
+    @SerialName("is_album") val isAlbum: Boolean = false,
+    @SerialName("favorite_count") val favoriteCount: Int = 0,
+    @SerialName("release_date") val releaseDate: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
 )
 
 private fun List<ApiTrack>.toTracks(): List<Track> = filter { it.isStreamable && it.access?.stream != false }.map { it.toTrack() }
@@ -228,6 +246,7 @@ private fun ApiTrack.toTrack() = Track(
     genre = genre,
     link = permalink?.let { "https://audius.co$it" },
     directUrl = stream?.url?.takeIf { it.startsWith("https://") },
+    playCount = playCount,
 )
 
 private fun ApiPlaylist.toPlaylist() = Playlist(
@@ -238,6 +257,10 @@ private fun ApiPlaylist.toPlaylist() = Playlist(
     artwork = artwork?.large ?: artwork?.medium ?: artwork?.small,
     trackCount = trackCount,
     description = description?.takeIf { it.isNotBlank() },
+    label = if (isAlbum) "Album" else "Playlist",
+    ownerId = user?.id.orEmpty(),
+    saves = favoriteCount,
+    year = (releaseDate ?: createdAt)?.take(4)?.takeIf { y -> y.length == 4 && y.all(Char::isDigit) },
 )
 
 private fun ApiUser.toArtist() = Artist(

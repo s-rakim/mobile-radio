@@ -30,6 +30,8 @@ data class Track(
     val albumId: String? = null,
     /** The stream is HLS (.m3u8), which the player can't always tell from the address. */
     val hls: Boolean = false,
+    /** How many times it's been played, when the source counts (Audius does). */
+    val playCount: Int = 0,
 ) {
     val source: String
         get() = when {
@@ -85,6 +87,12 @@ data class Playlist(
     /** "Playlist", "Album" or "Live album". */
     val label: String = "Playlist",
     val link: String? = null,
+    /** Artist page of whoever made it, when the source has one. */
+    val ownerId: String = "",
+    /** How many people saved it. */
+    val saves: Int = 0,
+    /** Release or creation year, for album headers. */
+    val year: String? = null,
 )
 
 @Serializable

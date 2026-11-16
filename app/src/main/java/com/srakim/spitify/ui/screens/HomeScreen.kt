@@ -1,5 +1,15 @@
 package com.srakim.spitify.ui.screens
 
+import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.runtime.LaunchedEffect
+
+import androidx.compose.ui.text.style.TextOverflow
+
+import androidx.compose.foundation.layout.fillMaxHeight
+
+import androidx.compose.ui.unit.sp
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.TextButton
@@ -132,6 +142,11 @@ fun HomeScreen() {
     val nowColor by rememberArtworkColor(playback.current?.artwork, SpitifyColors.AccentDeep)
     val glow = nowColor.copy(alpha = 0.6f)
 
+    // Signed in to Spotify: your own recents, top songs, artists and playlists lead the page.
+    val spotifyLib by com.srakim.spitify.ui.LocalApp.current.spotifyLibrary.state.collectAsStateWithLifecycle()
+    val spotifyApp = com.srakim.spitify.ui.LocalApp.current
+    LaunchedEffect(Unit) { spotifyApp.spotifyLibrary.refresh() }
+
     val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
@@ -183,7 +198,12 @@ fun HomeScreen() {
 
         item {
             val trendingPlaylists = (feed.state as? Load.Ready)?.data?.playlists.orEmpty()
-            val tiles = buildShortcuts(lib.recentItems, lib.liked.isNotEmpty() || lib.recentItems.isEmpty(), trendingPlaylists, actions)
+            val tiles = buildShortcuts(
+                lib.recentItems,
+                lib.liked.isNotEmpty() || spotifyLib.liked.isNotEmpty() || lib.recentItems.isEmpty(),
+                spotifyLib.playlists + spotifyLib.albums + trendingPlaylists,
+                actions,
+            )
             val perRow = gridColumns(LocalContentWidth.current, phone = 2, minCell = 260.dp).coerceAtMost(4)
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 tiles.chunked(perRow).forEachIndexed { row, group ->
@@ -200,6 +220,39 @@ fun HomeScreen() {
         val showMusic = filter == HomeFilter.ALL || filter == HomeFilter.MUSIC
         val showPlaylists = filter == HomeFilter.ALL || filter == HomeFilter.PLAYLISTS
         val showArtists = filter == HomeFilter.ALL || filter == HomeFilter.ARTISTS
+
+        // One big "Picked for you" card, like Spotify's: your top song if Spotify's signed in,
+        // otherwise this week's number one.
+        val picked = spotifyLib.topTracks.firstOrNull() ?: (feed.state as? Load.Ready)?.data?.trending?.firstOrNull()
+        if (showMusic && picked != null) {
+            item {
+                val pool = spotifyLib.topTracks.ifEmpty { (feed.state as? Load.Ready)?.data?.trending.orEmpty() }
+                PickedForYou(picked, pool)
+            }
+        }
+
+        if (showMusic && spotifyLib.recent.isNotEmpty()) {
+            item {
+                SectionHeader("Recently played")
+                TrackShelf(spotifyLib.recent.take(20), PlayContext("spotify-recent", "Recently played", "RECENTLY PLAYED"), playback.current?.id)
+            }
+        }
+        if (showMusic && spotifyLib.topTracks.size > 1) {
+            item {
+                SectionHeader("On repeat")
+                TrackShelf(spotifyLib.topTracks, PlayContext("spotify-top", "On repeat", "YOUR TOP SONGS"), playback.current?.id)
+            }
+        }
+        if (showPlaylists && spotifyLib.playlists.isNotEmpty()) {
+            item {
+                SectionHeader("Your playlists")
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(spotifyLib.playlists, key = { it.id }) { pl ->
+                        MediaCard(pl.name, "By ${pl.owner}", onClick = { actions.openPlaylist(pl.id) }, image = pl.artwork)
+                    }
+                }
+            }
+        }
 
         if (showMusic) item { DjCard(playingDj = playback.context?.id == com.srakim.spitify.data.AiDj.CONTEXT_ID) }
 
@@ -238,11 +291,12 @@ fun HomeScreen() {
             }
         }
 
-        if (showMusic && lib.followedArtists.isNotEmpty()) {
+        val favoriteArtists = (spotifyLib.topArtists + lib.followedArtists + spotifyLib.artists).distinctBy { it.id }.take(20)
+        if ((showMusic || showArtists) && favoriteArtists.isNotEmpty()) {
             item {
                 SectionHeader("Your favorite artists")
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    items(lib.followedArtists, key = { it.id }) { artist ->
+                    items(favoriteArtists, key = { it.id }) { artist ->
                         MediaCard(artist.name, "", onClick = { actions.openArtist(artist.id) }, image = artist.picture, round = true)
                     }
                 }
@@ -491,6 +545,68 @@ private fun DjCard(playingDj: Boolean) {
         }
         TextButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Dj) }) {
             Text("Request", color = SpitifyColors.Accent)
+        }
+    }
+}
+
+
+/** Spotify's big single-song card on Home: cover on the left, song and artist, add and play. */
+@Composable
+private fun PickedForYou(track: Track, pool: List<Track>) {
+    val player = LocalPlayer.current
+    val library = LocalLibrary.current
+    val actions = LocalActions.current
+    val lib by library.state.collectAsStateWithLifecycle()
+    val playback by player.state.collectAsStateWithLifecycle()
+    val color by rememberArtworkColor(track.artwork, SpitifyColors.Highlight)
+    val liked = lib.liked.any { it.id == track.id }
+    val ctx = PlayContext("picked", "Picked for you", "PICKED FOR YOU")
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 28.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Artwork(track.artistImage ?: track.artwork, Modifier.size(32.dp), CircleShape)
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text("Picked for you", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
+                Text(track.artist, style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(148.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(lerp(color, SpitifyColors.Elevated, 0.55f))
+                .clickable {
+                    if (playback.current?.id == track.id) actions.openPlayer()
+                    else player.play(pool.ifEmpty { listOf(track) }, pool.indexOf(track).coerceAtLeast(0), ctx)
+                },
+        ) {
+            Artwork(track.artworkLarge ?: track.artwork, Modifier.size(148.dp), RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+            Column(Modifier.weight(1f).fillMaxHeight().padding(12.dp)) {
+                Text(track.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Song • ${track.artist}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                Spacer(Modifier.weight(1f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Icon(
+                        if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,
+                        contentDescription = if (liked) "Remove from Liked Songs" else "Save to Liked Songs",
+                        tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextSecondary,
+                        modifier = Modifier.size(26.dp).clickable { library.toggleLike(track) },
+                    )
+                    Spacer(Modifier.weight(1f))
+                    com.srakim.spitify.ui.components.PlayCircle(
+                        playing = playback.current?.id == track.id && playback.isPlaying,
+                        size = 40.dp,
+                        container = Color.White,
+                        content = Color.Black,
+                        onClick = {
+                            if (playback.current?.id == track.id) player.togglePlayPause()
+                            else player.play(pool.ifEmpty { listOf(track) }, pool.indexOf(track).coerceAtLeast(0), ctx)
+                        },
+                    )
+                }
+            }
         }
     }
 }

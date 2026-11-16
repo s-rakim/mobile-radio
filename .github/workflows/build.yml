@@ -35,6 +35,15 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Spotify's App Remote SDK isn't on Maven, only on their GitHub releases.
+      # If the download fails the APK still builds, just without "Play through Spotify".
+      - name: Fetch the Spotify SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash scripts/fetch-spotify-sdk.sh
+          ls -la app/libs || true
+
       - name: Set up the signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.SPITIFY_KEYSTORE_BASE64 }}

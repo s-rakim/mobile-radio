@@ -41,6 +41,7 @@ data class Track(
             id.startsWith(ArchiveApi.ID_PREFIX) -> "Internet Archive"
             id.startsWith(CcMixterApi.ID_PREFIX) -> "ccMixter"
             id.startsWith(SoundCloudApi.ID_PREFIX) -> "SoundCloud"
+            SpotifyImport.isSpotify(id) -> "Spotify"
             else -> "Audius"
         }
 
@@ -69,7 +70,7 @@ data class Track(
 
     /** Songs already on the phone don't need saving. */
     /** SoundCloud's terms don't allow saving its streams. */
-    val canDownload: Boolean get() = !isLocal && !isRadio && !hls && !id.startsWith(SoundCloudApi.ID_PREFIX)
+    val canDownload: Boolean get() = !isLocal && !isRadio && !hls && !id.startsWith(SoundCloudApi.ID_PREFIX) && !SpotifyImport.isSpotify(id)
 }
 
 @Serializable

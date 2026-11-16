@@ -61,7 +61,13 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val updater: AppUpdater by lazy { AppUpdater(this, httpClient) }
     val account: AccountSync by lazy { AccountSync(this, httpClient, settings, library) }
     val radio: RadioBrowserApi by lazy { RadioBrowserApi(this, httpClient) }
-    val player: PlayerController by lazy { PlayerController(this, api, library, settings, downloads, radio) }
+    val player: PlayerController by lazy {
+        PlayerController(this, api, library, settings, downloads, radio).also { p ->
+            p.spotify = com.srakim.spitify.playback.SpotifyBridge(spotifyRemote, settings) { t -> spotifyImport.standInFor(t, catalog) }
+        }
+    }
+    /** Remote control for the Spotify app (Premium accounts). See playback/SpotifyRemote.kt. */
+    val spotifyRemote: com.srakim.spitify.playback.SpotifyRemote by lazy { com.srakim.spitify.playback.SpotifyRemoteImpl(this) }
     val social: SocialStore by lazy { SocialStore(this, account, settings) }
     val stats: ListeningStats by lazy { ListeningStats(this, settings) }
     val nearby: NearbyJam by lazy { NearbyJam(this) }

@@ -18,3 +18,10 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Spotify App Remote: its protocol types are filled in by Gson through reflection.
+-keep class com.spotify.protocol.** { *; }
+-keep class com.spotify.android.appremote.** { *; }
+-dontwarn com.spotify.**
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**

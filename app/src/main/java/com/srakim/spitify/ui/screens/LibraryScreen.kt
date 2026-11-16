@@ -30,6 +30,9 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.remember
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.History
@@ -69,8 +72,8 @@ import com.srakim.spitify.ui.components.Pill
 import com.srakim.spitify.ui.components.ProfileBadge
 import com.srakim.spitify.ui.theme.SpitifyColors
 
-private enum class LibraryFilter(val label: String) { PLAYLISTS("Playlists"), ARTISTS("Artists"), DOWNLOADED("Downloaded") }
-private enum class LibrarySort(val label: String) { RECENTS("Recents"), ADDED("Recently added"), ALPHA("Alphabetical") }
+private enum class LibraryFilter(val label: String) { PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists"), DOWNLOADED("Downloaded") }
+private enum class LibrarySort(val label: String) { RECENTS("Recents"), ADDED("Recently added"), ALPHA("Alphabetical"), CREATOR("Creator") }
 
 private data class LibraryEntry(
     val key: String,
@@ -84,7 +87,11 @@ private data class LibraryEntry(
     val pinned: Boolean = false,
     /** "local", "server" or "recent" for the built-in collections that aren't playlists. */
     val special: String? = null,
+    /** Who made it, for sorting by creator. "You" for your own playlists. */
+    val creator: String = "You",
 )
+
+private fun com.srakim.spitify.data.Playlist.isAlbum() = label.contains("album", ignoreCase = true)
 
 @Composable
 fun LibraryScreen() {
@@ -101,6 +108,9 @@ fun LibraryScreen() {
     var filter by rememberSaveable { mutableStateOf<LibraryFilter?>(null) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTS) }
     var grid by rememberSaveable { mutableStateOf(false) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var find by rememberSaveable { mutableStateOf("") }
+    var sortOpen by remember { mutableStateOf(false) }
 
     val recency = lib.recentItems.withIndex().associate { (i, item) -> "${item.kind}:${item.id}" to i }
 
@@ -137,12 +147,17 @@ fun LibraryScreen() {
                 )
             }
             lib.savedPlaylists.forEachIndexed { i, p ->
-                add(LibraryEntry("PLAYLIST:${p.id}", p.name, "${p.label} • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong()))
+                if (!p.isAlbum()) add(LibraryEntry("PLAYLIST:${p.id}", p.name, "${p.label} • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong(), creator = p.owner))
+            }
+        }
+        if (filter == null || filter == LibraryFilter.ALBUMS) {
+            lib.savedPlaylists.forEachIndexed { i, p ->
+                if (p.isAlbum()) add(LibraryEntry("PLAYLIST:${p.id}", p.name, "Album • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong(), creator = p.owner))
             }
         }
         if (filter == null || filter == LibraryFilter.ARTISTS) {
             lib.followedArtists.forEachIndexed { i, a ->
-                add(LibraryEntry("ARTIST:${a.id}", a.name, "Artist", RecentItem.Kind.ARTIST, a.id, a.picture, addedAt = -i.toLong()))
+                add(LibraryEntry("ARTIST:${a.id}", a.name, "Artist", RecentItem.Kind.ARTIST, a.id, a.picture, addedAt = -i.toLong(), creator = a.name))
             }
         }
     }.let { list ->
@@ -151,7 +166,11 @@ fun LibraryScreen() {
             LibrarySort.RECENTS -> rest.sortedBy { recency[it.key] ?: Int.MAX_VALUE }
             LibrarySort.ADDED -> rest.sortedByDescending { it.addedAt }
             LibrarySort.ALPHA -> rest.sortedBy { it.title.lowercase() }
+            LibrarySort.CREATOR -> rest.sortedWith(compareBy({ it.creator.lowercase() }, { it.title.lowercase() }))
         }
+    }.let { list ->
+        val q = find.trim()
+        if (!searching || q.isEmpty()) list else list.filter { it.title.contains(q, ignoreCase = true) || it.subtitle.contains(q, ignoreCase = true) }
     }
 
     fun openKind(e: LibraryEntry) = when (e.kind) {
@@ -186,17 +205,53 @@ fun LibraryScreen() {
                     ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                     Spacer(Modifier.width(12.dp))
                     Text("Your Library", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    IconButton(onClick = actions::openHistory) {
-                        Icon(Icons.Rounded.History, contentDescription = "Listening history")
+                    IconButton(onClick = {
+                        searching = !searching
+                        if (!searching) find = ""
+                    }) {
+                        Icon(com.srakim.spitify.ui.components.NavIcons.Search, contentDescription = "Search Your Library", modifier = Modifier.size(22.dp))
                     }
                     IconButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Create) }) {
                         Icon(Icons.Rounded.Add, contentDescription = "Create")
                     }
                 }
+                if (searching) {
+                    Row(
+                        Modifier
+                            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                            .fillMaxWidth()
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(SpitifyColors.Highlight)
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(com.srakim.spitify.ui.components.NavIcons.Search, contentDescription = null, modifier = Modifier.size(18.dp), tint = SpitifyColors.TextSecondary)
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (find.isEmpty()) Text("Search Your Library", style = MaterialTheme.typography.bodyMedium, color = SpitifyColors.TextSecondary)
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = find,
+                                onValueChange = { find = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = SpitifyColors.TextPrimary),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(SpitifyColors.Accent),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (filter != null) {
-                        IconButton(onClick = { filter = null }, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Clear filter", modifier = Modifier.size(18.dp))
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(SpitifyColors.Highlight)
+                                .clickable { filter = null },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear filter", modifier = Modifier.size(16.dp))
                         }
                     }
                     LibraryFilter.entries.filter { filter == null || filter == it }.forEach { f ->
@@ -208,7 +263,7 @@ fun LibraryScreen() {
                 Row(Modifier.padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Row(
                         Modifier
-                            .clickable { sort = LibrarySort.entries[(sort.ordinal + 1) % LibrarySort.entries.size] }
+                            .clickable { sortOpen = true }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -252,6 +307,28 @@ fun LibraryScreen() {
             }
         }
 
+        if (filter == null || filter == LibraryFilter.ARTISTS) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                // The round "+" row at the end of the list, the quickest way to fill Your Library.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = actions::openSearchInput)
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(64.dp).clip(CircleShape).background(SpitifyColors.Highlight),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(30.dp), tint = SpitifyColors.TextSecondary)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text("Add artists", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
+
         if (lib.playlists.isEmpty() && filter != LibraryFilter.ARTISTS) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyState(
@@ -260,6 +337,34 @@ fun LibraryScreen() {
                     action = "Create playlist",
                     onAction = { actions.showCreatePlaylist(null) },
                 )
+            }
+        }
+    }
+
+    if (sortOpen) {
+        com.srakim.spitify.ui.sheets.SpitifySheet(onDismiss = { sortOpen = false }) {
+            Text("Sort by", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 12.dp))
+            LibrarySort.entries.forEach { option ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            sort = option
+                            sortOpen = false
+                        }
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (sort == option) SpitifyColors.Accent else SpitifyColors.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (sort == option) {
+                        Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = SpitifyColors.Accent, modifier = Modifier.size(22.dp))
+                    }
+                }
             }
         }
     }

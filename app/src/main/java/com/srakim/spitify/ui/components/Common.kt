@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.theme.SpitifyColors
 
@@ -191,7 +192,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, action: String? 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, top = 24.dp, bottom = 12.dp),
+            .padding(start = 16.dp, end = 8.dp, top = 28.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
@@ -257,17 +258,17 @@ fun ShortcutTile(title: String, onClick: () -> Unit, modifier: Modifier = Modifi
         modifier = modifier
             .height(56.dp)
             .springClick(pressed = 0.97f, onClick = onClick)
-            .clip(RoundedCornerShape(6.dp))
-            .background(SpitifyColors.Highlight.copy(alpha = 0.85f)),
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.1f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         art(Modifier.size(56.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, lineHeight = 16.sp),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp),
+            modifier = Modifier.padding(horizontal = 8.dp),
         )
     }
 }
@@ -286,16 +287,16 @@ fun Pill(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifi
     )
     Box(
         modifier = modifier
-            .heightIn(min = 34.dp)
+            .heightIn(min = 32.dp)
             .springClick(pressed = 0.92f, onClick = onClick)
             .clip(CircleShape)
             .background(container)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
             color = content,
         )
     }
@@ -460,7 +461,7 @@ fun WhiteButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifie
 fun OutlineButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .heightIn(min = 34.dp)
+            .heightIn(min = 32.dp)
             .springClick(pressed = 0.94f, onClick = onClick)
             .clip(CircleShape)
             .border(BorderStroke(1.dp, SpitifyColors.TextMuted), CircleShape)

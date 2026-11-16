@@ -5,6 +5,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Spotify's App Remote SDK only ships as an .aar on their GitHub releases page, so it isn't in
+// the repo. CI downloads it into app/libs before building (see .github/workflows/build.yml, or
+// run scripts/fetch-spotify-sdk.sh locally). Without it the app still builds and simply plays
+// everything from Spitify's own sources.
+val spotifySdk: File? = file("libs").listFiles()
+    ?.firstOrNull { it.extension == "aar" && it.name.contains("app-remote") }
+
 android {
     namespace = "com.srakim.spitify"
     compileSdk = 35
@@ -50,6 +57,12 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            java.srcDir(if (spotifySdk != null) "src/spotify/java" else "src/nospotify/java")
         }
     }
 
@@ -109,4 +122,10 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    if (spotifySdk != null) {
+        implementation(files(spotifySdk))
+        // App Remote talks to the Spotify app in JSON and expects Gson on the classpath.
+        implementation("com.google.code.gson:gson:2.11.0")
+    }
 }

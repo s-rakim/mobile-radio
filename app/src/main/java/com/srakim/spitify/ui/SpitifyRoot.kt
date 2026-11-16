@@ -69,6 +69,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -140,6 +142,7 @@ import com.srakim.spitify.ui.theme.SpitifyColors
 import com.srakim.spitify.ui.components.Motion
 import com.srakim.spitify.ui.components.rememberPop
 import com.srakim.spitify.ui.components.springClick
+import com.srakim.spitify.ui.components.NavIcons
 
 private data class TrackMenuRequest(val track: Track, val playlistId: String?)
 
@@ -309,7 +312,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, SpitifyColors.Base.copy(alpha = 0.85f), SpitifyColors.Base))),
+                            .background(Brush.verticalGradient(0f to Color.Transparent, 0.35f to SpitifyColors.Base.copy(alpha = 0.82f), 1f to SpitifyColors.Base)),
                     ) {
                         Column {
                             val jamHost = nearbyJams.firstOrNull { it !in hiddenJams }
@@ -597,7 +600,7 @@ private fun BottomBar(nav: NavHostController, onCreate: () -> Unit) {
             val selected = currentTab == tab.route
             NavItem(tab.label, tabIcon(tab, selected), selected, Modifier.weight(1f)) { openTab(nav, tab, selected) }
         }
-        NavItem("Create", Icons.Rounded.Add, false, Modifier.weight(1f), onCreate)
+        NavItem("Create", NavIcons.Create, false, Modifier.weight(1f), onCreate)
     }
 }
 
@@ -624,14 +627,14 @@ private fun NavRail(nav: NavHostController, onCreate: () -> Unit) {
             val selected = currentTab == tab.route
             NavItem(tab.label, tabIcon(tab, selected), selected, Modifier.fillMaxWidth()) { openTab(nav, tab, selected) }
         }
-        NavItem("Create", Icons.Rounded.Add, false, Modifier.fillMaxWidth(), onCreate)
+        NavItem("Create", NavIcons.Create, false, Modifier.fillMaxWidth(), onCreate)
     }
 }
 
 private fun tabIcon(tab: Tab, selected: Boolean): ImageVector = when (tab) {
-    Tab.HOME -> if (selected) Icons.Rounded.Home else Icons.Outlined.Home
-    Tab.SEARCH -> if (selected) Icons.Rounded.Search else Icons.Outlined.Search
-    Tab.LIBRARY -> if (selected) Icons.Rounded.LibraryMusic else Icons.Outlined.LibraryMusic
+    Tab.HOME -> if (selected) NavIcons.HomeSelected else NavIcons.Home
+    Tab.SEARCH -> if (selected) NavIcons.SearchSelected else NavIcons.Search
+    Tab.LIBRARY -> if (selected) NavIcons.LibrarySelected else NavIcons.Library
 }
 
 private fun openTab(nav: NavHostController, tab: Tab, selected: Boolean) {
@@ -665,14 +668,20 @@ private fun NavItem(label: String, icon: ImageVector, selected: Boolean, modifie
             contentDescription = null,
             tint = tint,
             modifier = Modifier
-                .size(26.dp)
+                .size(25.dp)
                 .graphicsLayer {
                     scaleX = pop
                     scaleY = pop
                 },
         )
-        Spacer(Modifier.height(3.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing), color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp, letterSpacing = 0.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium),
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

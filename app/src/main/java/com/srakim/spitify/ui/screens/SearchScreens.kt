@@ -206,6 +206,13 @@ fun SearchInputScreen(initialQuery: String = "") {
     }
 
     val results = rememberLoad("search", debounced) { catalog.search(debounced) }
+    // Spotify's catalogue, when you've signed in to Spotify. Those songs play in the Spotify app
+    // (Premium) or as the closest match from Spitify's sources.
+    val spotifyImport = com.srakim.spitify.ui.LocalApp.current.spotifyImport
+    val spotifyLoad = rememberLoad("search-spotify", debounced) {
+        if (spotifyImport.hasToken) runCatching { spotifyImport.searchTracks(debounced) }.getOrDefault(emptyList()) else emptyList()
+    }
+    val spotifyTracks = (spotifyLoad.state as? Load.Ready)?.data.orEmpty()
     // The Spitify server's sources load on their own so a slow YouTube lookup never holds the rest up.
     val youtube = rememberLoad("search-youtube", debounced) { catalog.searchYouTube(debounced) }
     val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
@@ -298,7 +305,7 @@ fun SearchInputScreen(initialQuery: String = "") {
                 // Top songs from each big source first, so one source can't push the others off the top.
                 val data = state.data.let {
                     val seen = HashSet<String>()
-                    val merged = (interleave(youtubeTracks, soundcloudTracks, scDirect, it.tracks) + directTracks + openTracks)
+                    val merged = (interleave(spotifyTracks, youtubeTracks, soundcloudTracks, scDirect, it.tracks) + directTracks + openTracks)
                         .filter { t -> seen.add(t.title.lowercase().trim() + "|" + t.artist.lowercase().trim()) }
                     it.copy(
                         tracks = merged,

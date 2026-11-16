@@ -21,6 +21,12 @@ import com.srakim.spitify.data.LibraryStore
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.RadioBrowserApi
 import com.srakim.spitify.data.SpitifyServerApi
+import com.srakim.spitify.data.SpotifyImport
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.data.tasteGenres
 import kotlinx.coroutines.CoroutineScope
@@ -112,6 +118,16 @@ class PlayerController(
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
+    /** Hands Spotify songs to the Spotify app. Set by the app at start-up. */
+    var spotify: SpotifyBridge? = null
+
+    /** True while the Spotify app is doing the playing and this class only mirrors it. */
+    private var remoteMode = false
+    private var remoteQueue: List<Track> = emptyList()
+    private var remoteJob: Job? = null
+    private var remoteQueuedAfter = -1
+    private var standInJob: Job? = null
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
@@ -174,6 +190,10 @@ class PlayerController(
         scope.launch {
             while (isActive) {
                 delay(250)
+                if (remoteMode) {
+                    tickRemote()
+                    continue
+                }
                 val c = controller ?: continue
                 if (c.isPlaying || c.playbackState == Player.STATE_BUFFERING) updatePosition(c)
             }
@@ -196,6 +216,12 @@ class PlayerController(
             }
         }
         if (tracks.isEmpty()) return
+        val first = tracks.getOrNull(startIndex.coerceIn(tracks.indices))
+        if (first != null && SpotifyImport.isSpotify(first.id)) {
+            playSpotify(tracks, startIndex.coerceIn(tracks.indices), from)
+            return
+        }
+        leaveRemote()
         tracks.forEach { known[it.id] = it }
         playContext = from
         if (shuffle != null) setShuffle(shuffle)
@@ -213,7 +239,16 @@ class PlayerController(
         }
     }
 
-    fun togglePlayPause() = withController { c ->
+    fun togglePlayPause() {
+        if (remoteMode) {
+            val r = spotify?.remote ?: return
+            if (r.state.value.paused) r.resume() else r.pause()
+            return
+        }
+        togglePlayPauseLocal()
+    }
+
+    private fun togglePlayPauseLocal() = withController { c ->
         if (c.isPlaying) {
             c.pause()
         } else {
@@ -223,13 +258,26 @@ class PlayerController(
         }
     }
 
-    fun next() = withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
+    fun next() {
+        if (remoteMode) return spotify?.remote?.next() ?: Unit
+        withController { if (it.hasNextMediaItem()) it.seekToNextMediaItem() }
+    }
 
-    fun previous() = withController { it.seekToPrevious() }
+    fun previous() {
+        if (remoteMode) return spotify?.remote?.previous() ?: Unit
+        withController { it.seekToPrevious() }
+    }
 
-    fun seekTo(positionMs: Long) = withController {
-        it.seekTo(positionMs)
-        updatePosition(it)
+    fun seekTo(positionMs: Long) {
+        if (remoteMode) {
+            spotify?.remote?.seekTo(positionMs)
+            _state.update { it.copy(positionMs = positionMs) }
+            return
+        }
+        withController {
+            it.seekTo(positionMs)
+            updatePosition(it)
+        }
     }
 
     /** Off, then shuffle, then Smart Shuffle (when it's turned on in settings), then off again. */
@@ -447,7 +495,17 @@ class PlayerController(
             }
     }
 
-    fun skipTo(index: Int) = withController {
+    fun skipTo(index: Int) {
+        if (remoteMode) {
+            val t = remoteQueue.getOrNull(index) ?: return
+            remoteQueuedAfter = index - 1
+            spotify?.remote?.play(t.id)
+            return
+        }
+        skipToLocal(index)
+    }
+
+    private fun skipToLocal(index: Int) = withController {
         if (index in 0 until it.mediaItemCount) {
             it.seekToDefaultPosition(index)
             it.play()
@@ -467,7 +525,7 @@ class PlayerController(
             sleepEndsAt = endsAt
             sleepJob = scope.launch {
                 delay(minutes * 60_000L)
-                controller?.pause()
+                if (remoteMode) spotify?.remote?.pause() else controller?.pause()
                 sleepEndsAt = null
                 sync()
             }
@@ -502,6 +560,116 @@ class PlayerController(
         }
     }
 
+    // ---------- Spotify ----------
+
+    private fun playSpotify(tracks: List<Track>, start: Int, from: PlayContext?) {
+        tracks.forEach { known[it.id] = it }
+        val bridge = spotify
+        if (bridge != null && bridge.ready) {
+            // Only Spotify songs can go to the Spotify app; anything else in the list is left out.
+            val startId = tracks[start].id
+            val spotifyOnly = tracks.filter { SpotifyImport.isSpotify(it.id) }
+            standInJob?.cancel()
+            controller?.pause()
+            playContext = from
+            remoteQueue = spotifyOnly
+            remoteQueuedAfter = -1
+            remoteMode = true
+            bridge.remote.play(startId)
+            remoteJob?.cancel()
+            remoteJob = scope.launch { bridge.remote.state.collect { publishRemote(it) } }
+            return
+        }
+        // No Spotify app, no Premium or not connected: the same songs from Spitify's sources.
+        _messages.tryEmit(bridge?.whyNot() ?: "Playing the closest match from Spitify's sources")
+        if (bridge == null) return
+        standInJob?.cancel()
+        standInJob = scope.launch {
+            suspend fun resolve(t: Track): Track? = if (SpotifyImport.isSpotify(t.id)) bridge.standIn(t) else t
+            val wanted = tracks.drop(start).take(STAND_IN_MAX)
+            var firstAt = -1
+            var firstMatch: Track? = null
+            for ((i, t) in wanted.withIndex().take(5)) {
+                firstMatch = resolve(t)
+                if (firstMatch != null) {
+                    firstAt = i
+                    break
+                }
+            }
+            val found = firstMatch ?: run {
+                _messages.tryEmit("Couldn't find that one anywhere else")
+                return@launch
+            }
+            play(listOf(found), 0, from)
+            val gate = Semaphore(4)
+            val rest = coroutineScope {
+                wanted.drop(firstAt + 1).map { t -> async { gate.withPermit { resolve(t) } } }.awaitAll()
+            }.filterNotNull()
+            if (rest.isNotEmpty()) append(rest)
+        }
+    }
+
+    /** Back to playing on the phone. The Spotify app pauses so the two don't play over each other. */
+    private fun leaveRemote() {
+        standInJob?.cancel()
+        if (!remoteMode) return
+        remoteMode = false
+        remoteJob?.cancel()
+        remoteJob = null
+        spotify?.remote?.pause()
+    }
+
+    private fun publishRemote(rs: RemoteState) {
+        if (!remoteMode) return
+        if (!rs.connected) {
+            remoteMode = false
+            remoteJob?.cancel()
+            _messages.tryEmit("Lost the connection to the Spotify app")
+            sync()
+            return
+        }
+        val rt = rs.track ?: return
+        val current = known[rt.uri] ?: Track(
+            id = rt.uri,
+            title = rt.title,
+            artist = rt.artist,
+            artwork = rt.imageUrl,
+            artworkLarge = rt.imageUrl,
+            durationSec = (rt.durationMs / 1000).toInt(),
+            album = rt.album,
+        )
+        val at = remoteQueue.indexOfFirst { it.id == rt.uri }
+        // Keep exactly one song lined up in the Spotify app, so skipping and auto-advance follow our queue.
+        if (at >= 0 && remoteQueuedAfter != at) {
+            remoteQueuedAfter = at
+            remoteQueue.getOrNull(at + 1)?.let { spotify?.remote?.queue(it.id) }
+        }
+        if (current.id != lastRecordedId && !rs.paused) {
+            lastRecordedId = current.id
+            if (!settings.current.privateSession) library.recordPlay(current)
+        }
+        _state.value = PlaybackState(
+            current = current,
+            isPlaying = !rs.paused,
+            positionMs = rs.positionMs,
+            durationMs = rt.durationMs,
+            upNext = if (at >= 0) remoteQueue.drop(at + 1).mapIndexed { i, t -> QueueEntry(at + 1 + i, t) } else emptyList(),
+            context = playContext,
+            sleepTimerEndsAt = sleepEndsAt,
+            sleepAtTrackEnd = sleepAtTrackEnd,
+        )
+    }
+
+    /** The Spotify app only reports position on changes, so the bar is moved along here in between. */
+    private fun tickRemote() {
+        val rs = spotify?.remote?.state?.value ?: return
+        if (rs.paused) return
+        val now = System.currentTimeMillis()
+        _state.update {
+            it.copy(positionMs = (rs.positionMs + (now - rs.positionAt)).coerceIn(0, it.durationMs.coerceAtLeast(0)))
+        }
+    }
+
     private fun mediaItemFor(track: Track): MediaItem = track.toMediaItem(downloads.fileFor(track.id))
 
     private fun withController(action: (MediaController) -> Unit) {
@@ -515,6 +683,7 @@ class PlayerController(
     }
 
     private fun sync() {
+        if (remoteMode) return
         val c = controller ?: return
         val current = c.currentMediaItem?.toTrack()
         // A queued song that's now playing has left the queue.
@@ -599,6 +768,7 @@ class PlayerController(
     }
 
     private fun updatePosition(c: MediaController) {
+        if (remoteMode) return
         _state.update {
             it.copy(
                 positionMs = c.currentPosition.coerceAtLeast(0),
@@ -624,6 +794,9 @@ class PlayerController(
 }
 
 internal const val EXTRA_MIME = "spitify.mime"
+
+/** How many songs of a Spotify list get swapped for stand-ins when Spotify can't play them. */
+private const val STAND_IN_MAX = 30
 
 fun Track.remoteUri(): Uri = Uri.parse(SpitifyServerApi.resolve(streamUrl) ?: AudiusApi.streamUrl(id))
 

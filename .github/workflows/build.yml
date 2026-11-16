@@ -19,7 +19,8 @@ jobs:
     env:
       VERSION_CODE: ${{ github.run_number }}
       SPITIFY_SERVER_URL: ${{ vars.SPITIFY_SERVER_URL }}
-      SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
+      # Kept as a secret so it's masked in logs. The old variable still works as a fallback.
+      SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID || vars.SPOTIFY_CLIENT_ID }}
       VERSION_NAME: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5

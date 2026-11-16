@@ -83,6 +83,7 @@ fun TrackRow(
     number: Int? = null,
     showArtwork: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    subtitle: String? = null,
 ) {
     val source = remember { MutableInteractionSource() }
     val titleColor by animateColorAsState(
@@ -139,8 +140,8 @@ fun TrackRow(
                 }
                 val actions = com.srakim.spitify.ui.LocalActions.current
                 Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = subtitle ?: track.artist,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = if (track.hasArtistLink) {

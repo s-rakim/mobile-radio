@@ -62,6 +62,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.srakim.spitify.data.Artist
 import com.srakim.spitify.data.Genres
@@ -108,7 +110,7 @@ fun SearchScreen() {
             Row(Modifier.statusBarsPadding().padding(top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                 Spacer(Modifier.width(12.dp))
-                Text("Search", style = MaterialTheme.typography.headlineSmall)
+                Text("Search", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 24.sp))
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -117,18 +119,31 @@ fun SearchScreen() {
                     .fillMaxWidth()
                     .height(48.dp)
                     .springClick(pressed = 0.98f, onClick = actions::openSearchInput)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(Color.White)
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF121212), modifier = Modifier.size(26.dp))
                 Spacer(Modifier.width(10.dp))
-                Text("What do you want to listen to?", style = MaterialTheme.typography.titleSmall, color = Color(0xFF404040))
+                Text("What do you want to listen to?", style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp), color = Color(0xFF535353))
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Text("Browse all", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+            Text("Discover something new", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp))
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            // Tall cards like Spotify's: a cover filling the card, a hashtag along the bottom.
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(end = 16.dp),
+                modifier = Modifier.padding(end = 0.dp),
+            ) {
+                items(Genres.all.take(8), key = { "disc:" + it.name }) { g -> DiscoverCard(g.name, Color(g.color)) { actions.openMix(g.name) } }
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text("Browse all", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 18.dp, bottom = 2.dp))
         }
         items(Genres.all, key = { it.name }) { genre ->
             Box(Modifier.appear(Genres.all.indexOf(genre))) {
@@ -149,23 +164,49 @@ private fun GenreTile(name: String, color: Color, onClick: () -> Unit) {
             .fillMaxWidth()
             .aspectRatio(1.75f)
             .springClick(pressed = 0.95f, onClick = onClick)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.08f), color, lerp(color, Color.Black, 0.35f)))),
+            .clip(RoundedCornerShape(6.dp))
+            .background(color),
     ) {
         Text(
             name,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp, lineHeight = 19.sp),
             color = Color.White,
-            modifier = Modifier.padding(12.dp).fillMaxWidth(0.7f),
+            modifier = Modifier.padding(12.dp).fillMaxWidth(0.68f),
         )
         Artwork(
             url = (cover.state as? Load.Ready)?.data,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .offset(x = 16.dp, y = 6.dp)
-                .size(64.dp)
-                .rotate(25f),
+                .offset(x = 18.dp, y = 4.dp)
+                .rotate(25f)
+                .size(72.dp)
+                .shadow(8.dp, RoundedCornerShape(4.dp)),
             shape = RoundedCornerShape(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun DiscoverCard(name: String, color: Color, onClick: () -> Unit) {
+    val api = LocalApi.current
+    val cover = rememberLoad("discover-cover", name) {
+        api.trendingTracks(genre = name, limit = 3).getOrNull(1)?.let { it.artworkLarge ?: it.artwork }
+    }
+    Box(
+        Modifier
+            .width(118.dp)
+            .height(196.dp)
+            .springClick(pressed = 0.95f, onClick = onClick)
+            .clip(RoundedCornerShape(8.dp))
+            .background(color),
+    ) {
+        Artwork((cover.state as? Load.Ready)?.data, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
+        Text(
+            "#" + name.lowercase().replace("/", " ").replace("-", "").split(" ").first(),
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+            color = Color.White,
+            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
         )
     }
 }
@@ -210,9 +251,10 @@ fun SearchInputScreen(initialQuery: String = "") {
     // (Premium) or as the closest match from Spitify's sources.
     val spotifyImport = com.srakim.spitify.ui.LocalApp.current.spotifyImport
     val spotifyLoad = rememberLoad("search-spotify", debounced) {
-        if (spotifyImport.hasToken) runCatching { spotifyImport.searchTracks(debounced) }.getOrDefault(emptyList()) else emptyList()
+        if (spotifyImport.hasToken) runCatching { spotifyImport.searchAll(debounced) }.getOrDefault(SearchResults.Empty) else SearchResults.Empty
     }
-    val spotifyTracks = (spotifyLoad.state as? Load.Ready)?.data.orEmpty()
+    val spotifyResults = (spotifyLoad.state as? Load.Ready)?.data ?: SearchResults.Empty
+    val spotifyTracks = spotifyResults.tracks
     // The Spitify server's sources load on their own so a slow YouTube lookup never holds the rest up.
     val youtube = rememberLoad("search-youtube", debounced) { catalog.searchYouTube(debounced) }
     val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
@@ -309,8 +351,9 @@ fun SearchInputScreen(initialQuery: String = "") {
                         .filter { t -> seen.add(t.title.lowercase().trim() + "|" + t.artist.lowercase().trim()) }
                     it.copy(
                         tracks = merged,
-                        artists = it.artists + extras?.artists.orEmpty(),
-                        playlists = it.playlists + extras?.playlists.orEmpty(),
+                        // Signed in to Spotify: its artists, albums and playlists come first, like the real thing.
+                        artists = spotifyResults.artists + it.artists + extras?.artists.orEmpty(),
+                        playlists = spotifyResults.playlists + it.playlists + extras?.playlists.orEmpty(),
                     )
                 }
                 val radioContext = PlayContext("radio-search:$debounced", "\"$debounced\" stations", "RADIO")

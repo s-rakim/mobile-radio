@@ -594,6 +594,28 @@ private fun SettingsSectionPage(page: SettingsSection) {
 
             SettingsSection.DEVICES -> {
                 item {
+                    // Your Spotify account: Home, Search, Liked Songs and Library show its music.
+                    val signedIn by app.spotifyImport.signedIn.collectAsStateWithLifecycle()
+                    SettingRow(
+                        if (signedIn) "Spotify account connected" else "Sign in with Spotify",
+                        if (signedIn) "Your Spotify likes, playlists, albums, artists and recents show up across Spitify. Tap to sign out."
+                        else "Show your Spotify music in Home, Search, Liked Songs and Your Library",
+                        onClick = {
+                            val importer = app.spotifyImport
+                            when {
+                                signedIn -> {
+                                    importer.signOut()
+                                    actions.toast("Signed out of Spotify")
+                                }
+                                importer.clientId.isBlank() -> editingSpotifyId = true
+                                else -> runCatching {
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, importer.authorizeUrl()))
+                                }.onFailure { actions.toast("No browser found to sign in with") }
+                            }
+                        },
+                    )
+                }
+                item {
                     SettingRow(
                         "Import from Spotify",
                         "Bring your Spotify playlists and Liked Songs into Spitify",

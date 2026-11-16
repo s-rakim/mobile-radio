@@ -104,6 +104,7 @@ fun LibraryScreen() {
     val catalog = LocalCatalog.current
     val localTracks by catalog.local.tracks.collectAsStateWithLifecycle()
     val social by com.srakim.spitify.ui.LocalApp.current.social.state.collectAsStateWithLifecycle()
+    val spotifyLib by com.srakim.spitify.ui.LocalApp.current.spotifyLibrary.state.collectAsStateWithLifecycle()
 
     var filter by rememberSaveable { mutableStateOf<LibraryFilter?>(null) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTS) }
@@ -116,7 +117,8 @@ fun LibraryScreen() {
 
     val entries = buildList {
         if (filter == null || filter == LibraryFilter.PLAYLISTS) {
-            add(LibraryEntry("LIKED:liked", "Liked Songs", "Playlist • ${lib.liked.size} songs", RecentItem.Kind.LIKED, "liked", null, pinned = true))
+            val likedCount = (lib.liked.map { it.id } + spotifyLib.liked.map { it.id }).distinct().size
+            add(LibraryEntry("LIKED:liked", "Liked Songs", "Playlist • $likedCount songs", RecentItem.Kind.LIKED, "liked", null, pinned = true))
             val recentSubtitle = if (lib.recentTracks.isEmpty()) "Songs you play show up here" else "Playlist • ${lib.recentTracks.size} songs"
             add(LibraryEntry("RECENT:recent", "Recent songs", recentSubtitle, RecentItem.Kind.PLAYLIST, "recent", null, pinned = true, special = "recent"))
             if (settings.showLocalFiles) {
@@ -146,6 +148,10 @@ fun LibraryScreen() {
                     ),
                 )
             }
+            // Your Spotify playlists, when you're signed in.
+            spotifyLib.playlists.forEachIndexed { i, p ->
+                add(LibraryEntry("PLAYLIST:${p.id}", p.name, "Playlist • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -1000L - i, creator = p.owner))
+            }
             lib.savedPlaylists.forEachIndexed { i, p ->
                 if (!p.isAlbum()) add(LibraryEntry("PLAYLIST:${p.id}", p.name, "${p.label} • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong(), creator = p.owner))
             }
@@ -154,13 +160,19 @@ fun LibraryScreen() {
             lib.savedPlaylists.forEachIndexed { i, p ->
                 if (p.isAlbum()) add(LibraryEntry("PLAYLIST:${p.id}", p.name, "Album • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -i.toLong(), creator = p.owner))
             }
+            spotifyLib.albums.forEachIndexed { i, p ->
+                add(LibraryEntry("PLAYLIST:${p.id}", p.name, "${p.label} • ${p.owner}", RecentItem.Kind.PLAYLIST, p.id, p.artwork, addedAt = -1000L - i, creator = p.owner))
+            }
         }
         if (filter == null || filter == LibraryFilter.ARTISTS) {
             lib.followedArtists.forEachIndexed { i, a ->
                 add(LibraryEntry("ARTIST:${a.id}", a.name, "Artist", RecentItem.Kind.ARTIST, a.id, a.picture, addedAt = -i.toLong(), creator = a.name))
             }
+            spotifyLib.artists.forEachIndexed { i, a ->
+                add(LibraryEntry("ARTIST:${a.id}", a.name, "Artist", RecentItem.Kind.ARTIST, a.id, a.picture, addedAt = -1000L - i, creator = a.name))
+            }
         }
-    }.let { list ->
+    }.distinctBy { it.key }.let { list ->
         val (pinned, rest) = list.partition { it.pinned }
         pinned + when (sort) {
             LibrarySort.RECENTS -> rest.sortedBy { recency[it.key] ?: Int.MAX_VALUE }

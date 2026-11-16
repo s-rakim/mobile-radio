@@ -37,6 +37,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -81,54 +83,24 @@ import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
+/** Old name kept for the friends' pages. */
 @Composable
-private fun CoverBlock(modifier: Modifier = Modifier, content: @Composable (Modifier) -> Unit) {
-    val scale = remember { Animatable(0.88f) }
-    LaunchedEffect(Unit) { scale.animateTo(1f, Motion.settle()) }
-    Box(modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        content(
-            Modifier
-                .size(236.dp)
-                .graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
-                }
-                .shadow(24.dp, RoundedCornerShape(6.dp)),
-        )
-    }
-}
+private fun HeaderText(title: String, description: String?, owner: String?, ownerImage: String?, meta: String) =
+    CollectionHeaderText(title, description, owner, ownerImage, meta)
 
-@Composable
-private fun HeaderText(title: String, description: String?, owner: String?, ownerImage: String?, meta: String) {
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        if (!description.isNullOrBlank()) {
-            Spacer(Modifier.height(6.dp))
-            Text(description, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        }
-        if (!owner.isNullOrBlank()) {
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Artwork(ownerImage, Modifier.size(22.dp), CircleShape)
-                Spacer(Modifier.width(8.dp))
-                Text(owner, style = MaterialTheme.typography.titleSmall)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(meta, style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-private fun metaLine(tracks: List<Track>): String {
+private fun metaLine(tracks: List<Track>, saves: Int = 0): String {
     val seconds = tracks.sumOf { it.durationSec.toLong() }
-    val songs = if (tracks.size == 1) "1 song" else "${tracks.size} songs"
-    return if (seconds > 0) "$songs • ${formatLongDuration(seconds)}" else songs
+    val parts = buildList {
+        if (saves > 0) add("${"%,d".format(saves)} saves")
+        if (seconds > 0) add(formatLongDuration(seconds)) else add(if (tracks.size == 1) "1 song" else "${tracks.size} songs")
+    }
+    return parts.joinToString(" • ")
 }
 
 @Composable
 fun PlaylistScreen(id: String) {
     val catalog = LocalCatalog.current
+    val api = LocalApi.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
     val actions = LocalActions.current
@@ -136,12 +108,23 @@ fun PlaylistScreen(id: String) {
     val lib by library.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     val likedIds = rememberLikedIds()
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(TrackSort.CUSTOM) }
+    var sorting by remember { mutableStateOf(false) }
 
     val load = rememberLoad("playlist", id) { catalog.playlist(id) }
     val playlist = (load.state as? Load.Ready)?.data?.first
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
+    val shown = remember(tracks, query, sort) { tracks.filterAndSort(query, sort) }
+    val isAlbum = playlist?.label?.contains("Album", ignoreCase = true) == true
     val art = rememberArtworkColors(playlist?.artwork)
     val color = art.primary
+
+    // Albums end with more from the same artist, like Spotify's "More by".
+    val moreBy = rememberLoad("moreBy", playlist?.ownerId, isAlbum) {
+        val owner = playlist?.ownerId.orEmpty()
+        if (!isAlbum || owner.isBlank()) emptyList() else runCatching { api.artistAlbums(owner) }.getOrDefault(emptyList()).filter { it.id != id }
+    }
 
     LaunchedEffect(playlist?.id) {
         playlist?.let { library.recordVisit(RecentItem(RecentItem.Kind.PLAYLIST, it.id, it.name, "${it.label} • ${it.owner}", it.artwork)) }
@@ -152,14 +135,29 @@ fun PlaylistScreen(id: String) {
         when (val state = load.state) {
             is Load.Failed -> ErrorState(state.message, load.retry)
             else -> {
+                if (!isAlbum) {
+                    FindInCollection(query, { query = it }, sortLabel = sort.label, onSort = { sorting = true })
+                }
                 CoverBlock { m -> Artwork(playlist?.artwork, m) }
-                HeaderText(
-                    title = playlist?.name ?: " ",
-                    description = playlist?.description,
-                    owner = playlist?.owner,
-                    ownerImage = playlist?.ownerImage,
-                    meta = if (tracks.isEmpty()) " " else metaLine(tracks),
-                )
+                if (isAlbum) {
+                    CollectionHeaderText(
+                        title = playlist?.name ?: " ",
+                        owner = playlist?.owner,
+                        ownerImage = playlist?.ownerImage,
+                        meta = listOfNotNull(playlist?.label, playlist?.year).joinToString(" • "),
+                        onOwner = playlist?.ownerId?.takeIf { it.isNotBlank() }?.let { o -> { actions.openArtist(o) } },
+                    )
+                } else {
+                    CollectionHeaderText(
+                        title = playlist?.name ?: " ",
+                        description = playlist?.description,
+                        owner = playlist?.owner,
+                        ownerImage = playlist?.ownerImage,
+                        meta = if (tracks.isEmpty()) " " else metaLine(tracks, playlist?.saves ?: 0),
+                        globe = true,
+                        onOwner = playlist?.ownerId?.takeIf { it.isNotBlank() }?.let { o -> { actions.openArtist(o) } },
+                    )
+                }
                 if (playlist != null) {
                     CollectionActions(
                         tracks = tracks,
@@ -169,6 +167,7 @@ fun PlaylistScreen(id: String) {
                             val now = library.toggleSaved(playlist)
                             actions.toast(if (now) "Added to Your Library" else "Removed from Your Library")
                         },
+                        thumb = { m -> Artwork(playlist.artwork, m, RoundedCornerShape(2.dp)) },
                         extraMenu = { close ->
                             SheetOption(Icons.Rounded.Share, "Share", onClick = {
                                 shareText(context, "${playlist.name}\n" + (playlist.link ?: "https://audius.co/playlists/${playlist.id}"))
@@ -182,11 +181,49 @@ fun PlaylistScreen(id: String) {
     }) {
         if (load.state is Load.Loading) item { SkeletonTrackList() }
         collectionTracks(
-            tracks, ctx, playback.current?.id, playback.isPlaying, likedIds,
-            onPlay = { player.play(tracks, it, ctx) },
+            shown, ctx, playback.current?.id, playback.isPlaying, likedIds,
+            onPlay = { i -> player.play(tracks, tracks.indexOf(shown[i]).coerceAtLeast(0), ctx) },
             onMore = { actions.showTrackMenu(it, null) },
+            showArtwork = !isAlbum,
         )
+        if (query.isNotBlank() && shown.isEmpty() && tracks.isNotEmpty()) {
+            item { EmptyState("Couldn't find \"$query\"", "Try searching again using a different spelling or keyword.") }
+        }
+        if (playlist != null && tracks.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp)) {
+                    if (isAlbum && playlist.year != null) {
+                        Text(playlist.year, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    Text(
+                        "${tracks.size} ${if (tracks.size == 1) "song" else "songs"} • ${formatLongDuration(tracks.sumOf { it.durationSec.toLong() })}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (isAlbum) {
+                        Spacer(Modifier.height(14.dp))
+                        Text("© ${playlist.year ?: ""} ${playlist.owner}".trim(), style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp))
+                    }
+                }
+            }
+        }
+        val more = (moreBy.state as? Load.Ready)?.data.orEmpty()
+        if (more.isNotEmpty()) {
+            item {
+                SectionHeader("More by ${playlist?.owner.orEmpty()}")
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    items(more.size, key = { more[it].id }) { i ->
+                        val p = more[i]
+                        com.srakim.spitify.ui.components.MediaCard(p.name, listOfNotNull(p.year, "Album").joinToString(" • "), onClick = { actions.openPlaylist(p.id) }, image = p.artwork)
+                    }
+                }
+            }
+        }
     }
+    if (sorting) SortSheet(sort, { sort = it }, { sorting = false })
 }
 
 @Composable
@@ -197,14 +234,23 @@ fun LikedSongsScreen() {
     val lib by library.state.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
     val likedIds = rememberLikedIds()
-    val tracks = lib.liked
+    // Signed in to Spotify: your Spotify likes join the ones saved in Spitify.
+    val spotifyLib by com.srakim.spitify.ui.LocalApp.current.spotifyLibrary.state.collectAsStateWithLifecycle()
+    val tracks = remember(lib.liked, spotifyLib.liked) { (lib.liked + spotifyLib.liked).distinctBy { it.id } }
     val ctx = PlayContext("liked", "Liked Songs", "LIKED SONGS")
 
     LaunchedEffect(Unit) { library.recordVisit(RecentItem(RecentItem.Kind.LIKED, "liked", "Liked Songs")) }
 
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(TrackSort.CUSTOM) }
+    var sorting by remember { mutableStateOf(false) }
+    val shown = remember(tracks, query, sort) { tracks.filterAndSort(query, sort) }
+    if (sorting) SortSheet(sort, { sort = it }, { sorting = false })
+
     CollectionScaffold(title = "Liked Songs", color = SpitifyColors.AccentDeep, header = {
+        FindInCollection(query, { query = it }, sort.label, { sorting = true }, hint = "Find in Liked Songs")
         CoverBlock { m -> LikedSongsArt(m) }
-        HeaderText("Liked Songs", null, null, null, metaLine(tracks))
+        CollectionHeaderText("Liked Songs", meta = if (tracks.size == 1) "1 song" else "${tracks.size} songs")
         CollectionActions(tracks, ctx)
     }) {
         if (tracks.isEmpty()) {
@@ -213,8 +259,8 @@ fun LikedSongsScreen() {
             }
         }
         collectionTracks(
-            tracks, ctx, playback.current?.id, playback.isPlaying, likedIds,
-            onPlay = { player.play(tracks, it, ctx) },
+            shown, ctx, playback.current?.id, playback.isPlaying, likedIds,
+            onPlay = { i -> player.play(tracks, tracks.indexOf(shown[i]).coerceAtLeast(0), ctx) },
             onMore = { actions.showTrackMenu(it, LIKED_PLAYLIST) },
         )
     }
@@ -295,9 +341,16 @@ fun MyPlaylistScreen(id: String) {
     val color = art.primary
     val ctx = PlayContext("mine:$id", playlist.name, "PLAYLIST")
 
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(TrackSort.CUSTOM) }
+    var sorting by remember { mutableStateOf(false) }
+    val shown = remember(playlist.tracks, query, sort) { playlist.tracks.filterAndSort(query, sort) }
+    if (sorting) SortSheet(sort, { sort = it }, { sorting = false })
+
     CollectionScaffold(title = playlist.name, color = color, secondary = art.secondary, header = {
+        if (playlist.tracks.isNotEmpty()) FindInCollection(query, { query = it }, sort.label, { sorting = true })
         CoverBlock { m -> MosaicArt(playlist.tracks.map { it.artwork }, m) }
-        HeaderText(
+        CollectionHeaderText(
             playlist.name,
             playlist.description.ifBlank { null },
             "You",
@@ -307,6 +360,7 @@ fun MyPlaylistScreen(id: String) {
         CollectionActions(
             playlist.tracks,
             ctx,
+            thumb = { m -> MosaicArt(playlist.tracks.map { it.artwork }, m) },
             extraMenu = { close ->
                 SheetOption(Icons.Rounded.Edit, "Rename", onClick = {
                     close()
@@ -354,8 +408,8 @@ fun MyPlaylistScreen(id: String) {
             }
         }
         collectionTracks(
-            playlist.tracks, ctx, playback.current?.id, playback.isPlaying, likedIds,
-            onPlay = { player.play(playlist.tracks, it, ctx) },
+            shown, ctx, playback.current?.id, playback.isPlaying, likedIds,
+            onPlay = { i -> player.play(playlist.tracks, playlist.tracks.indexOf(shown[i]).coerceAtLeast(0), ctx) },
             onMore = { actions.showTrackMenu(it, playlist.id) },
         )
         item {

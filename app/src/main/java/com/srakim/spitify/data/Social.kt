@@ -39,6 +39,8 @@ data class Profile(
     val displayName: String = username,
     val color: String = "#22C55E",
     val activity: Boolean = true,
+    /** Server path of their profile picture, null when they haven't set one. */
+    val avatar: String? = null,
 ) {
     val initial: String get() = displayName.trim().firstOrNull()?.uppercase() ?: "?"
 }
@@ -55,8 +57,9 @@ data class Friend(
     val following: Boolean = false,
     val followsYou: Boolean = false,
     val nowPlaying: NowPlaying? = null,
+    val avatar: String? = null,
 ) {
-    val profile: Profile get() = Profile(username, displayName, color, activity)
+    val profile: Profile get() = Profile(username, displayName, color, activity, avatar)
 }
 
 @Serializable
@@ -122,6 +125,7 @@ data class PersonStats(
     val username: String,
     val displayName: String = username,
     val color: String = "#22C55E",
+    val avatar: String? = null,
     val minutes: Int = 0,
     val topTracks: List<TrackPlays> = emptyList(),
     val topArtists: List<ArtistPlays> = emptyList(),
@@ -249,6 +253,32 @@ class SocialStore(
             ),
         )
         _state.update { it.copy(me = p) }
+    }
+
+    /** Sends a square JPEG as your profile picture, so friends see it too. */
+    suspend fun uploadAvatar(jpeg: ByteArray) = call {
+        val p = decode<Profile>(
+            account.request(
+                "api/social/avatar",
+                "PUT",
+                buildJsonObject { put("image", android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)) },
+            ),
+        )
+        _state.update { it.copy(me = p) }
+    }
+
+    suspend fun removeAvatar() = call {
+        val p = decode<Profile>(account.request("api/social/avatar", "DELETE"))
+        _state.update { it.copy(me = p) }
+    }
+
+    /** A full link for a picture path the server sent, or null. */
+    fun avatarUrl(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        if (path.startsWith("http://") || path.startsWith("https://")) return path
+        val base = account.serverBase() ?: return null
+        val (p, q) = path.split('?', limit = 2).let { it[0] to it.getOrNull(1) }
+        return base.newBuilder().addPathSegments(p.trim('/')).encodedQuery(q).build().toString()
     }
 
     /** What's playing now, or null when it stops. Quietly does nothing when not signed in. */

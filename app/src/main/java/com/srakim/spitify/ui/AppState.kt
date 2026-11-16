@@ -107,6 +107,8 @@ sealed interface AppSheet {
     data object BlendPicker : AppSheet
     data object NewFolder : AppSheet
     data class MoveToFolder(val playlistId: String) : AppSheet
+    /** Your name and picture. */
+    data object EditProfile : AppSheet
 }
 
 /** App-wide actions any screen can trigger: navigation, sheets, toasts. */

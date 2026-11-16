@@ -74,7 +74,8 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy { com.srakim.spitify.data.SpotifyImport(this, httpClient, settings) }
     val spotifyLibrary: com.srakim.spitify.data.SpotifyLibrary by lazy { com.srakim.spitify.data.SpotifyLibrary(spotifyImport) }
     val dj: com.srakim.spitify.data.AiDj by lazy { com.srakim.spitify.data.AiDj(this) }
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /** Lives as long as the app, for work that must finish even if the screen that started it closes. */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Set by the playback service while it's alive, so Settings can read equaliser bands. */
     @Volatile

@@ -215,7 +215,7 @@ fun StatsScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("${i + 1}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(28.dp))
-                    Avatar(p.displayName, p.color, 40.dp)
+                    Avatar(p.displayName, p.color, 40.dp, image = p.avatar)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(if (p.username == acct.username) "You" else p.displayName, style = MaterialTheme.typography.bodyLarge)

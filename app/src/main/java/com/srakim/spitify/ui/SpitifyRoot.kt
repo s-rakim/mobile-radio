@@ -55,6 +55,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -107,6 +109,7 @@ import com.srakim.spitify.ui.sheets.CreateOption
 import com.srakim.spitify.ui.sheets.AiPlaylistSheet
 import com.srakim.spitify.ui.sheets.DjSheet
 import com.srakim.spitify.ui.sheets.MoveToFolderSheet
+import com.srakim.spitify.ui.sheets.EditProfileDialog
 import com.srakim.spitify.ui.sheets.ProfileDrawer
 import com.srakim.spitify.ui.sheets.ConnectSheet
 import com.srakim.spitify.ui.sheets.SendToSheet
@@ -159,6 +162,9 @@ fun SpitifyRoot(app: SpitifyApp) {
     var createPlaylist by remember { mutableStateOf(false) }
     var createWithTrack by remember { mutableStateOf<Track?>(null) }
     var sheet by remember { mutableStateOf<AppSheet?>(null) }
+    // Bumped on every open, so asking for a sheet always shows it fresh, even if the last copy
+    // of the same sheet never reported that it closed.
+    var sheetOpens by remember { mutableIntStateOf(0) }
     var pendingFolderMove by remember { mutableStateOf<String?>(null) }
     var collabInvite by remember { mutableStateOf<CollabPreview?>(null) }
     var hiddenJams by remember { mutableStateOf(setOf<String>()) }
@@ -185,7 +191,10 @@ fun SpitifyRoot(app: SpitifyApp) {
             showJam = { jamFor = it },
             showSleepTimer = { sleepTimerOpen = true },
             showSongDna = { dnaFor = it },
-            showSheet = { sheet = it },
+            showSheet = {
+                sheet = it
+                sheetOpens++
+            },
             openPlayer = { playerOpen = true },
             closePlayer = { playerOpen = false },
         )
@@ -396,9 +405,10 @@ fun SpitifyRoot(app: SpitifyApp) {
             AddToPlaylistSheet(track = track, onDismiss = { addToPlaylist = null })
         }
         val closeSheet = { sheet = null }
-        when (val s = sheet) {
+        key(sheetOpens) { when (val s = sheet) {
             null -> Unit
             AppSheet.ProfileDrawer -> ProfileDrawer(onDismiss = closeSheet)
+            AppSheet.EditProfile -> EditProfileDialog(onDismiss = closeSheet)
             AppSheet.Create -> CreateSheet(onDismiss = closeSheet, onPick = { option ->
                 sheet = null
                 when (option) {
@@ -484,7 +494,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                     sheet = AppSheet.NewFolder
                 },
             )
-        }
+        } }
         collabInvite?.let { inv ->
             AlertDialog(
                 onDismissRequest = { collabInvite = null },

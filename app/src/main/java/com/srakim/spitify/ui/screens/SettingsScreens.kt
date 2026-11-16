@@ -87,6 +87,7 @@ import com.srakim.spitify.ui.LocalPlayer
 import com.srakim.spitify.ui.LocalSettings
 import com.srakim.spitify.ui.LocalThemes
 import com.srakim.spitify.ui.theme.Palettes
+import com.srakim.spitify.ui.components.MyAvatar
 import com.srakim.spitify.ui.theme.SpitifyColors
 import com.srakim.spitify.ui.theme.SpitifyPalette
 
@@ -195,6 +196,27 @@ private fun SettingsHub() {
     var confirmLogout by remember { mutableStateOf(false) }
 
     SettingsPage("Settings") {
+        item {
+            // Your profile first, like Spotify: picture, name, and a way to change them.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (acct.signedIn) actions.openProfile(acct.username.orEmpty())
+                        else actions.showSheet(com.srakim.spitify.ui.AppSheet.EditProfile)
+                    }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MyAvatar(56.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(settings.profileName.ifBlank { acct.username ?: "Your profile" }, style = MaterialTheme.typography.titleMedium)
+                    Text(if (acct.signedIn) "View profile" else "Add your name and photo", style = MaterialTheme.typography.bodySmall)
+                }
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
+            }
+        }
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -312,7 +334,6 @@ private fun SettingsSectionPage(page: SettingsSection) {
     val lib by library.state.collectAsStateWithLifecycle()
     val acct by app.account.state.collectAsStateWithLifecycle()
 
-    var editingName by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf(false) }
     var editingWeb by remember { mutableStateOf(false) }
     var editingSpotifyId by remember { mutableStateOf(false) }
@@ -372,20 +393,14 @@ private fun SettingsSectionPage(page: SettingsSection) {
             SettingsSection.ACCOUNT -> {
                 item {
                     Row(
-                        Modifier.fillMaxWidth().clickable { editingName = true }.padding(16.dp),
+                        Modifier.fillMaxWidth().clickable { actions.showSheet(com.srakim.spitify.ui.AppSheet.EditProfile) }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(56.dp).clip(CircleShape).background(SpitifyColors.Accent), contentAlignment = Alignment.Center) {
-                            Text(
-                                settings.profileName.trim().firstOrNull()?.uppercase() ?: acct.username?.firstOrNull()?.uppercase() ?: "S",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = SpitifyColors.OnAccent,
-                            )
-                        }
+                        MyAvatar(56.dp)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text(settings.profileName.ifBlank { acct.username ?: "Your profile" }, style = MaterialTheme.typography.titleMedium)
-                            Text("Edit name. Friends see it too.", style = MaterialTheme.typography.bodySmall)
+                            Text("Edit name and photo. Friends see them too.", style = MaterialTheme.typography.bodySmall)
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = SpitifyColors.TextSecondary)
                     }
@@ -857,33 +872,6 @@ private fun SettingsSectionPage(page: SettingsSection) {
                 }
             }
         }
-    }
-
-    if (editingName) {
-        var name by remember { mutableStateOf(settings.profileName) }
-        AlertDialog(
-            onDismissRequest = { editingName = false },
-            containerColor = SpitifyColors.Elevated,
-            title = { Text("Your name") },
-            text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it.take(40) },
-                    singleLine = true,
-                    placeholder = { Text("Shown in your greeting and to friends") },
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SpitifyColors.Accent, cursorColor = SpitifyColors.Accent),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val clean = name.trim()
-                    set { it.copy(profileName = clean) }
-                    if (acct.signedIn && clean.isNotBlank()) scope.launch { runCatching { app.social.updateProfile(displayName = clean) } }
-                    editingName = false
-                }) { Text("Save", color = SpitifyColors.Accent) }
-            },
-            dismissButton = { TextButton(onClick = { editingName = false }) { Text("Cancel", color = SpitifyColors.TextSecondary) } },
-        )
     }
 
     if (editingJamendo) {

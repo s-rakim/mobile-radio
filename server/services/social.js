@@ -60,6 +60,8 @@ function profile(name) {
     displayName: p.displayName || name,
     color: p.color || colorFor(name),
     activity: p.activity !== false,
+    // The version in the link lets phones cache the picture for good and still see a new one.
+    avatar: p.avatarAt ? `/api/avatars/${encodeURIComponent(name)}?v=${p.avatarAt}` : null,
   };
 }
 
@@ -78,6 +80,42 @@ function updateProfile(name, body) {
   if (p.activity === false) delete db.nowPlaying[name];
   save();
   return profile(name);
+}
+
+// ---- Profile pictures: one small JPEG per person, already cropped square on the phone. ----
+
+const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
+const avatarFile = (name) => path.join(AVATAR_DIR, `${name}.jpg`);
+
+function setAvatar(name, body) {
+  const buf = Buffer.from(typeof body.image === 'string' ? body.image : '', 'base64');
+  if (buf.length < 200) throw new SocialError(400, 'No picture came through');
+  if (buf.length > 1_500_000) throw new SocialError(413, 'That picture is too big');
+  if (buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) throw new SocialError(400, 'Send the picture as a JPEG');
+  fs.mkdirSync(AVATAR_DIR, { recursive: true });
+  const tmp = `${avatarFile(name)}.tmp`;
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, avatarFile(name));
+  const p = db.profiles[name] || {};
+  p.avatarAt = Date.now();
+  db.profiles[name] = p;
+  save();
+  return profile(name);
+}
+
+function clearAvatar(name) {
+  fs.rmSync(avatarFile(name), { force: true });
+  if (db.profiles[name]) delete db.profiles[name].avatarAt;
+  save();
+  return profile(name);
+}
+
+/** The file to send for someone's picture, or null. Names are checked before they touch the disk. */
+function avatarPath(raw) {
+  const name = String(raw || '').toLowerCase();
+  if (!/^[a-z0-9_.-]{3,32}$/.test(name) || !db.profiles[name]?.avatarAt) return null;
+  const file = avatarFile(name);
+  return fs.existsSync(file) ? file : null;
 }
 
 function searchUsers(me, q) {
@@ -400,6 +438,9 @@ module.exports = {
   SocialError,
   profile,
   updateProfile,
+  setAvatar,
+  clearAvatar,
+  avatarPath,
   searchUsers,
   follow,
   unfollow,

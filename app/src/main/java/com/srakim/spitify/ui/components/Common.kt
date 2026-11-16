@@ -347,9 +347,10 @@ fun PlayPauseIcon(playing: Boolean, tint: Color, modifier: Modifier = Modifier) 
     }
 }
 
-/** The small profile circle in the top-left of the main tabs. Opens settings. */
+/** The small profile circle in the top-left of the main tabs: your picture once you've set one. */
 @Composable
 fun ProfileBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val photo = rememberMyPhoto()
     Box(
         modifier = modifier
             .size(34.dp)
@@ -359,6 +360,14 @@ fun ProfileBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Rounded.Person, contentDescription = "Profile and settings", tint = SpitifyColors.OnAccent, modifier = Modifier.size(20.dp))
+        if (photo != null) {
+            coil.compose.AsyncImage(
+                model = photo,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }
 

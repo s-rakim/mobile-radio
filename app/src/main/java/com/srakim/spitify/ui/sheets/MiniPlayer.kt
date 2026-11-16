@@ -82,8 +82,8 @@ fun MiniPlayer(onOpen: () -> Unit) {
                     translationX = dragX.value
                     alpha = 1f - (abs(dragX.value) / (size.width * 1.4f)).coerceIn(0f, 0.5f)
                 }
-                .clip(RoundedCornerShape(8.dp))
-                .background(Brush.horizontalGradient(listOf(colors.primary, colors.secondary)))
+                .clip(RoundedCornerShape(6.dp))
+                .background(androidx.compose.ui.graphics.lerp(colors.primary, colors.secondary, 0.35f))
                 .pointerInput(track.id) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -105,7 +105,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
                 Modifier
                     .fillMaxWidth()
                     .height(56.dp)
-                    .padding(start = 8.dp),
+                    .padding(start = 8.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Artwork(track.artwork, Modifier.size(40.dp), RoundedCornerShape(4.dp))
@@ -130,6 +130,14 @@ fun MiniPlayer(onOpen: () -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                IconButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Connect) }) {
+                    Icon(
+                        com.srakim.spitify.ui.components.NavIcons.Devices,
+                        contentDescription = "Connect to a device",
+                        tint = SpitifyColors.TextPrimary,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
                 IconButton(onClick = {
                     val now = library.toggleLike(track)

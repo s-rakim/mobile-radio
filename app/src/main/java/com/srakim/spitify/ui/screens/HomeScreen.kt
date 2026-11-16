@@ -16,6 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -89,6 +98,7 @@ private data class HomeFeed(
 /** One of the 2x4 tiles at the top. */
 private data class Shortcut(val key: String, val title: String, val art: @Composable (Modifier) -> Unit, val open: () -> Unit)
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen() {
     val api = LocalApi.current
@@ -122,34 +132,53 @@ fun HomeScreen() {
     val nowColor by rememberArtworkColor(playback.current?.artwork, SpitifyColors.AccentDeep)
     val glow = nowColor.copy(alpha = 0.6f)
 
+    val listState = rememberLazyListState()
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(0f to glow, 0.32f to SpitifyColors.Background)),
         contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp),
     ) {
-        item {
+        // Avatar and filter chips stay pinned while the page scrolls under them, and pick up a
+        // solid backing once the coloured glow has scrolled away.
+        stickyHeader(key = "chips") {
+            val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 24 } }
+            val backing by animateColorAsState(
+                if (scrolled) lerp(nowColor, SpitifyColors.Background, 0.72f) else Color.Transparent,
+                tween(com.srakim.spitify.ui.components.Motion.MEDIUM),
+                label = "chipBacking",
+            )
             Row(
                 Modifier
+                    .fillMaxWidth()
+                    .background(backing)
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 ProfileBadge(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.ProfileDrawer) })
                 Spacer(Modifier.width(2.dp))
-                HomeFilter.entries.forEach { f ->
-                    Pill(f.label, selected = filter == f, onClick = { filter = if (filter == f && f != HomeFilter.ALL) HomeFilter.ALL else f })
+                if (filter != HomeFilter.ALL) {
+                    // Picking a chip hides the others and puts a round X in front of it.
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(SpitifyColors.Highlight)
+                            .clickable { filter = HomeFilter.ALL },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Clear filter", modifier = Modifier.size(16.dp))
+                    }
                 }
+                HomeFilter.entries
+                    .filter { if (filter == HomeFilter.ALL) true else it == filter }
+                    .forEach { f ->
+                        Pill(f.label, selected = filter == f, onClick = { filter = if (filter == f && f != HomeFilter.ALL) HomeFilter.ALL else f })
+                    }
             }
-        }
-
-        item {
-            Text(
-                greeting(settings.profileName),
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
         }
 
         item {
@@ -179,6 +208,47 @@ fun HomeScreen() {
             (taste.mapNotNull { name -> Genres.all.firstOrNull { it.name == name } } + Genres.all).distinct().take(10)
         }
 
+        val jumpBack = lib.recentItems.filter { it.kind != RecentItem.Kind.LIKED }.drop(4).take(10)
+        if (showMusic && jumpBack.size >= 3) {
+            item {
+                SectionHeader("Jump back in")
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(jumpBack, key = { "${it.kind}:${it.id}" }) { item ->
+                        MediaCard(
+                            title = item.title,
+                            subtitle = item.subtitle,
+                            image = item.image,
+                            round = item.kind == RecentItem.Kind.ARTIST,
+                            width = 168.dp,
+                            onClick = {
+                                when (item.kind) {
+                                    RecentItem.Kind.PLAYLIST -> actions.openPlaylist(item.id)
+                                    RecentItem.Kind.MY_PLAYLIST -> actions.openMyPlaylist(item.id)
+                                    RecentItem.Kind.ARTIST -> actions.openArtist(item.id)
+                                    RecentItem.Kind.MIX -> actions.openMix(item.id)
+                                    RecentItem.Kind.LIKED -> actions.openLiked()
+                                }
+                            },
+                            art = if (item.kind == RecentItem.Kind.MIX) {
+                                { m -> MixCover(item.title.removeSuffix(" Mix"), Color(Genres.colorFor(item.title.removeSuffix(" Mix"))), m) }
+                            } else null,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showMusic && lib.followedArtists.isNotEmpty()) {
+            item {
+                SectionHeader("Your favorite artists")
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(lib.followedArtists, key = { it.id }) { artist ->
+                        MediaCard(artist.name, "", onClick = { actions.openArtist(artist.id) }, image = artist.picture, round = true)
+                    }
+                }
+            }
+        }
+
         if (showMusic && lib.recentTracks.isNotEmpty()) {
             item {
                 SectionHeader("Recently played", action = "Show all", onAction = actions::openHistory)
@@ -193,7 +263,7 @@ fun HomeScreen() {
                 val data = state.data
                 if (showMusic) {
                     item {
-                        SectionHeader("Made for you")
+                        SectionHeader("Your top mixes")
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             items(madeForYou, key = { it.name }) { genre ->
                                 MediaCard(
@@ -206,7 +276,7 @@ fun HomeScreen() {
                         }
                     }
                     item {
-                        SectionHeader("Trending this week")
+                        SectionHeader("Trending now")
                         TrackShelf(data.trending, PlayContext("trending-week", "Trending this week", "TRENDING"), playback.current?.id)
                     }
                 }
@@ -384,16 +454,6 @@ private fun buildShortcuts(
         }
     }
     return tiles.take(8)
-}
-
-private fun greeting(name: String): String {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val base = when (hour) {
-        in 5..11 -> "Good morning"
-        in 12..17 -> "Good afternoon"
-        else -> "Good evening"
-    }
-    return if (name.isBlank()) base else "$base, ${name.trim()}"
 }
 
 /** The DJ on Home: one tap starts a set picked from what you play, the arrow takes requests. */

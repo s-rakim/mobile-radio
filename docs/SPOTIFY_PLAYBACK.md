@@ -27,9 +27,10 @@ short note saying why. The screens look and work the same either way.
    - The SHA-1 fingerprint of the key the APK is signed with. For the release key:
      `keytool -list -v -keystore spitify-release.jks -alias <alias>` and copy the SHA1 line.
 4. Tick **Android** and **Web API** under APIs used, and save.
-5. Put the Client ID in the `SPOTIFY_CLIENT_ID` Actions variable (Settings → Secrets and
-   variables → Actions → Variables) so every build has it, or type it into the app under
-   Settings → Devices → Spotify app id.
+5. Save the Client ID as the `SPOTIFY_CLIENT_ID` repository secret (Settings → Secrets and
+   variables → Actions → Secrets → New repository secret) so every build has it, or type it
+   into the app under Settings → Devices → Spotify app id. A `SPOTIFY_CLIENT_ID` variable
+   still works if no secret is set.
 
 While the developer app is in development mode, only accounts you add under **User Management**
 on the dashboard can use it.

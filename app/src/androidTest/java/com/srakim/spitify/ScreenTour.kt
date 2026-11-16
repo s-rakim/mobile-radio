@@ -62,6 +62,7 @@ class ScreenTour {
             step { tap("Search"); shot("03-search") }
             step { scrollDown(); shot("04-search-scrolled") }
             step { tap("Your Library"); shot("05-library") }
+            step { tap("Liked Songs"); shot("05b-liked", 3000); device.pressBack() }
 
             val playlists = runCatching { runBlocking { app.api.trendingPlaylists(20) } }.getOrDefault(emptyList())
             val tracks = runCatching { runBlocking { app.api.trendingTracks(limit = 20) } }.getOrDefault(emptyList())

@@ -83,7 +83,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
                     alpha = 1f - (abs(dragX.value) / (size.width * 1.4f)).coerceIn(0f, 0.5f)
                 }
                 .clip(RoundedCornerShape(6.dp))
-                .background(androidx.compose.ui.graphics.lerp(colors.primary, colors.secondary, 0.35f))
+                .background(androidx.compose.ui.graphics.lerp(androidx.compose.ui.graphics.lerp(colors.primary, colors.secondary, 0.35f), androidx.compose.ui.graphics.Color.Black, 0.38f))
                 .pointerInput(track.id) {
                     detectHorizontalDragGestures(
                         onDragEnd = {

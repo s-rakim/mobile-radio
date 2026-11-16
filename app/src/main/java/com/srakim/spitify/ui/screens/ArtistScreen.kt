@@ -118,7 +118,8 @@ fun ArtistScreen(id: String) {
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
     val releases = (releasesLoad.state as? Load.Ready)?.data.orEmpty()
     val related = (relatedLoad.state as? Load.Ready)?.data.orEmpty()
-    val heroImage = artist?.cover ?: artist?.pictureLarge
+    // Spotify fills the header with a photo of the artist, so the square portrait beats a wide banner.
+    val heroImage = artist?.pictureLarge ?: artist?.cover
     val color by rememberArtworkColor(artist?.picture)
     val following = lib.followedArtists.any { it.id == id }
     val ctx = PlayContext("artist:$id", artist?.name ?: "Artist", "ARTIST")

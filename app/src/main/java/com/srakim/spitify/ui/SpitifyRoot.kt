@@ -225,6 +225,9 @@ fun SpitifyRoot(app: SpitifyApp) {
                 }
             }
             is Links.Link.User -> actions.openProfile(l.name)
+            is Links.Link.Playlist -> actions.openPlaylist(l.id)
+            is Links.Link.Artist -> actions.openArtist(l.id)
+            Links.Link.Player -> if (app.player.state.value.current != null) playerOpen = true
             is Links.Link.SpotifyAuth -> {
                 runCatching { app.spotifyImport.finishSignIn(l.code, l.state, l.error) }
                     .onSuccess {

@@ -139,6 +139,9 @@ object Links {
         data class CollabInvite(val id: String) : Link
         data class User(val name: String) : Link
         data class SpotifyAuth(val code: String?, val state: String?, val error: String?) : Link
+        data class Playlist(val id: String) : Link
+        data class Artist(val id: String) : Link
+        data object Player : Link
     }
 
     val incoming = MutableStateFlow<Link?>(null)
@@ -149,6 +152,9 @@ object Links {
             "collab" -> uri.pathSegments.firstOrNull()?.takeIf { it.all(Char::isLetterOrDigit) }?.let { Link.CollabInvite(it) }
             "user" -> uri.pathSegments.firstOrNull()?.lowercase()?.let { Link.User(it) }
             "spotify-auth" -> Link.SpotifyAuth(uri.getQueryParameter("code"), uri.getQueryParameter("state"), uri.getQueryParameter("error"))
+            "playlist", "album" -> uri.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Link.Playlist(it) }
+            "artist" -> uri.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Link.Artist(it) }
+            "player" -> Link.Player
             else -> null
         }
     }

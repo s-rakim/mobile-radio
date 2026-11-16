@@ -22,6 +22,7 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Shared Spitify server for accounts, friends and messages. Everyone who wants to be
         // friends in the app needs the same one. Set the SPITIFY_SERVER_URL Actions variable.
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"${(System.getenv("SPITIFY_SERVER_URL") ?: "").replace("\"", "")}\"")
@@ -122,6 +123,12 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Only for the screen tour that screenshots the app on an emulator in CI.
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 
     if (spotifySdk != null) {
         implementation(files(spotifySdk))

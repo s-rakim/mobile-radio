@@ -173,6 +173,9 @@ fun NowPlayingScreen(onClose: () -> Unit) {
         }
     }
 
+    val pageScroll = rememberScrollState()
+    val showCanvas = settings.canvas && !track.isRadio
+
     var menuOpen by remember { mutableStateOf(false) }
     var lyricsOpen by remember { mutableStateOf(false) }
     var lyricsSharing by remember { mutableStateOf(false) }
@@ -203,6 +206,17 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             .nestedScroll(pullToClose)
             .clickable(enabled = false) {},
     ) {
+        if (showCanvas) {
+            // The looping Canvas fills the first screen and fades out as you scroll down to the lyrics.
+            com.srakim.spitify.ui.components.CanvasLoop(
+                track = track,
+                playing = state.isPlaying,
+                tint = art.secondary,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 1f - (pageScroll.value / 700f).coerceIn(0f, 1f) },
+            )
+        }
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val pageHeight = maxHeight
             val pageWidth = maxWidth
@@ -216,9 +230,9 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         val ctx = state.context
                         Text(
-                            if (ctx != null) "Playing from ${contextKind(ctx.label)}" else "Now playing",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
+                            (if (ctx != null) "Playing from ${contextKind(ctx.label)}" else "Now playing").uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SpitifyColors.TextPrimary.copy(alpha = 0.85f),
                         )
                         if (ctx != null) {
                             Text(ctx.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -392,9 +406,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         }
                         Box(
                             Modifier
-                                .size(68.dp)
+                                .size(64.dp)
                                 .springClick(pressed = 0.88f, onClick = player::togglePlayPause)
-                                .shadow(16.dp, CircleShape, ambientColor = color, spotColor = color)
                                 .clip(CircleShape)
                                 .background(Color.White),
                             contentAlignment = Alignment.Center,
@@ -440,7 +453,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 }
             }
 
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.fillMaxSize().verticalScroll(pageScroll), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (sideBySide) {
                     val coverSide = minOf(pageHeight - 72.dp, pageWidth * 0.45f).coerceAtLeast(160.dp)
                     Column(Modifier.fillMaxWidth().height(pageHeight.coerceAtLeast(360.dp)).padding(horizontal = 32.dp)) {
@@ -460,7 +473,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                     Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().height(pageHeight.coerceAtLeast(560.dp)).padding(horizontal = 24.dp)) {
                         header()
                         Spacer(Modifier.weight(1f))
-                        cover(Modifier.fillMaxWidth().aspectRatio(1f))
+                        // With Canvas on, the loop behind is the picture, so the square cover steps aside.
+                        if (showCanvas) Spacer(Modifier.fillMaxWidth().aspectRatio(1f)) else cover(Modifier.fillMaxWidth().aspectRatio(1f))
                         Spacer(Modifier.weight(1f))
                         liveLine()
                         titleRow()
@@ -502,9 +516,30 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                     modifier = Modifier.padding(14.dp),
                                 )
                             }
+                            val audius = com.srakim.spitify.ui.LocalApi.current
+                            val about = com.srakim.spitify.ui.rememberLoad("about-artist", track.artistId) {
+                                if (track.isAudius && track.artistId.isNotBlank()) {
+                                    runCatching { audius.artist(track.artistId) }.getOrNull()
+                                } else null
+                            }
+                            val info = (about.state as? com.srakim.spitify.ui.Load.Ready)?.data
                             Column(Modifier.padding(16.dp)) {
                                 Text(track.artist, style = MaterialTheme.typography.titleMedium)
-                                Text("Tap to see their top tracks", style = MaterialTheme.typography.bodySmall)
+                                if (info != null && info.followers > 0) {
+                                    Text(
+                                        "${com.srakim.spitify.ui.components.formatCount(info.followers)} followers",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                                Text(
+                                    info?.bio ?: "Tap to see their top tracks",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = SpitifyColors.TextSecondary,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
                             }
                         }
                     }

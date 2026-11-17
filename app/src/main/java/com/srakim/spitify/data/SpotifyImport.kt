@@ -49,17 +49,25 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         val isrc: String? = null,
         val artwork: String? = null,
         val album: String? = null,
+        /** Spotify URIs of the album and the main artist, so "Go to album" and "Go to artist" land on their pages. */
+        val albumUri: String? = null,
+        val artistUri: String? = null,
+        val artworkLarge: String? = null,
+        val link: String? = null,
     ) {
-        /** The song as a Spotify track, so it can sit in a playlist until your server has it. */
+        /** The song as a Spotify track, with everything Spotify said about it. */
         fun asTrack(): Track = Track(
             id = uri ?: ("import:" + SongMatch.clean("$artist $title").replace(' ', '-')),
             title = title,
             artist = artist,
+            artistId = artistUri.orEmpty(),
             durationSec = (durationMs / 1000).toInt(),
             isrc = isrc,
             artwork = artwork,
-            artworkLarge = artwork,
+            artworkLarge = artworkLarge ?: artwork,
             album = album,
+            albumId = albumUri,
+            link = link,
         )
     }
 
@@ -263,14 +271,19 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
                 val title = t.str("name") ?: return@forEach
                 val artist = (t["artists"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("name") }?.joinToString(", ").orEmpty()
                 val album = t["album"] as? JsonObject
+                val images = (album?.get("images") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
                 out += SourceTrack(
                     title,
                     artist,
                     t.str("duration_ms")?.toLongOrNull() ?: 0,
                     uri = t.str("uri")?.takeIf { it.startsWith(TRACK_PREFIX) },
                     isrc = (t["external_ids"] as? JsonObject)?.str("isrc"),
-                    artwork = (album?.get("images") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }?.let { it.getOrNull(1) ?: it.firstOrNull() },
+                    artwork = images.getOrNull(1) ?: images.firstOrNull(),
                     album = album?.str("name"),
+                    albumUri = album?.str("uri")?.takeIf { it.startsWith(ALBUM_PREFIX) },
+                    artistUri = ((t["artists"] as? JsonArray)?.firstOrNull() as? JsonObject)?.str("uri")?.takeIf { it.startsWith(ARTIST_PREFIX) },
+                    artworkLarge = images.firstOrNull(),
+                    link = (t["external_urls"] as? JsonObject)?.str("spotify"),
                 )
             }
             next = page.str("next")

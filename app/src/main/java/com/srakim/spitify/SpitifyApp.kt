@@ -72,6 +72,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
                 settings,
                 hasClientId = { spotifyImport.clientId.isNotBlank() },
             ) { t -> spotifyImport.standInFor(t, catalog) }
+            p.similarTo = { t -> com.srakim.spitify.data.SongRadio.build(t, catalog, library.state.value.tasteExcluded.toSet()).drop(1) }
         }
     }
     /** Remote control for the Spotify app (Premium accounts). See playback/SpotifyRemote.kt. */

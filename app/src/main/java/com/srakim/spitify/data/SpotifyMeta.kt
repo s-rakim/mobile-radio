@@ -212,6 +212,21 @@ class SpotifyMeta(private val spotify: SpotifyImport, private val client: OkHttp
         }.awaitAll().filterNotNull()
     }
 
+    /**
+     * A handful of [name]'s best known songs in one search call, for song radio and autoplay.
+     * Cheaper than a whole artist page when all that's needed is songs.
+     */
+    suspend fun songsBy(name: String): List<Track> = withContext(Dispatchers.IO) {
+        val wanted = core(name)
+        if (wanted.isEmpty() || !spotify.hasToken) return@withContext emptyList()
+        retry {
+            spotify.api("$API/search?type=track&limit=10&q=" + Uri.encode("artist:\"$name\"")).jsonObject["tracks"]
+                ?.jsonObject?.get("items")?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+        }.orEmpty()
+            .filter { o -> (o["artists"] as? JsonArray)?.any { a -> core(((a as? JsonObject)?.get("name") as? JsonPrimitive)?.contentOrNull.orEmpty()) == wanted } == true }
+            .mapNotNull(spotify::toTrack)
+    }
+
     /** The Spotify artist with exactly this name, for opening their page from another source. */
     suspend fun findArtist(name: String): Artist? = withContext(Dispatchers.IO) {
         val wanted = core(name)

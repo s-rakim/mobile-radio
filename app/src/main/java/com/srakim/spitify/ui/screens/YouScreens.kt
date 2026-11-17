@@ -1,5 +1,6 @@
 package com.srakim.spitify.ui.screens
 
+import com.srakim.spitify.playback.playingFrom
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -367,9 +368,19 @@ fun ImportScreen() {
                     step = ImportStep.Matching(source.name, done, total, i + 1, chosen.size)
                 }
                 val found = matches.mapNotNull { it.track }
-                // Songs nobody has yet stay in the playlist as Spotify songs, greyed out, and play
-                // from your server as soon as you add them there.
-                val keep = matches.mapNotNull { m -> m.track ?: m.source.uri?.let { m.source.asTrack() } }
+                // Spotify songs stay Spotify songs: their own title, artists, album and cover, like
+                // in Spotify. With your server set up it decides at play time (its answers are kept
+                // on the phone, so that's quick), and songs it doesn't have yet sit greyed out until
+                // you add them. Without one, the exact copy that was found travels along as the audio.
+                val serverDecides = app.serverCopies.enabled
+                val keep = matches.mapNotNull { m ->
+                    val spotifySong = m.source.uri?.let { m.source.asTrack() }
+                    when {
+                        spotifySong == null -> m.track
+                        serverDecides || m.track == null -> spotifySong
+                        else -> m.track?.let { spotifySong.playingFrom(it) } ?: spotifySong
+                    }
+                }
                 val made = if (keep.isNotEmpty()) {
                     app.library.createPlaylist(source.name, keep, description = "Imported from Spotify")
                 } else null

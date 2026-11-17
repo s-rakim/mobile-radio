@@ -420,7 +420,9 @@ fun CollectionActions(
     var menuOpen by remember { mutableStateOf(false) }
 
     val playingHere = playback.isPlayingFrom(context.id)
-    val allDownloaded = tracks.isNotEmpty() && tracks.all { dl.has(it.id) }
+    // Songs that can't be saved (not on your server, say) don't stop the list counting as downloaded.
+    val toSave = remember(tracks, dl) { downloads.countSaveable(tracks) }
+    val allDownloaded = tracks.isNotEmpty() && toSave == 0 && tracks.any { dl.has(it.id) }
     val downloading = tracks.any { dl.isDownloading(it.id) }
 
     val pinned = LocalPinnedPlay.current
@@ -466,7 +468,11 @@ fun CollectionActions(
                         downloads.remove(tracks.map { it.id })
                         actions.toast("Removed from downloads")
                     }
-                    downloads.download(tracks) -> actions.toast("Downloading ${tracks.size} songs")
+                    toSave == 0 -> actions.toast(
+                        if (tracks.any { SpotifyImport.isSpotify(it.id) }) "Spotify songs are saved from your server. Set it up in Settings → Music sources."
+                        else "None of these songs can be saved for offline",
+                    )
+                    downloads.download(tracks) -> actions.toast("Downloading $toSave ${if (toSave == 1) "song" else "songs"}")
                     else -> actions.toast("Downloads are set to Wi-Fi only. Change it in Settings.")
                 }
             },

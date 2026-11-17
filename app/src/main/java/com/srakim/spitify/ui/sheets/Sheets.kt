@@ -274,7 +274,8 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
             actions.showCredits(track)
         })
     }
-    if (track.canDownload && settings.offlineAccess) {
+    // Spotify songs are only offered when there's somewhere to save them from.
+    if (track.canDownload && settings.offlineAccess && (downloaded || downloads.countSaveable(listOf(track)) > 0)) {
         SheetOption(
             if (downloaded) Icons.Rounded.DownloadForOffline else Icons.Rounded.Download,
             if (downloaded) "Remove download" else "Download",

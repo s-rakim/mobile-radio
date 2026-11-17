@@ -214,7 +214,7 @@ private fun DiscoverCard(name: String, color: Color, onClick: () -> Unit) {
     ) {
         // No grey placeholder: until the cover arrives the card is the genre's own colour.
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.12f), lerp(color, Color.Black, 0.45f)))))
-        if (url != null) Artwork(url, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
+        if (url != null) Artwork(url, Modifier.fillMaxSize(), RoundedCornerShape(0.dp), placeholder = false)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
         Text(
             "#" + name.lowercase().replace("/", " ").replace("-", "").split(" ").first(),

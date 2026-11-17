@@ -452,7 +452,7 @@ fun MixCover(genre: String, color: Color, modifier: Modifier) {
         val big = maxWidth > 100.dp
         // Until the photo loads (or if there is none) the cover is the mix colour, never a grey box.
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.1f), lerp(color, Color.Black, 0.5f)))))
-        (cover.state as? Load.Ready)?.data?.let { Artwork(it, Modifier.fillMaxSize(), RoundedCornerShape(0.dp)) }
+        (cover.state as? Load.Ready)?.data?.let { Artwork(it, Modifier.fillMaxSize(), RoundedCornerShape(0.dp), placeholder = false) }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to lerp(color, Color.Black, 0.25f))))
         Box(
             Modifier

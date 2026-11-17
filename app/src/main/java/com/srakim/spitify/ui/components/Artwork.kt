@@ -47,19 +47,23 @@ fun Artwork(
     shape: Shape = RoundedCornerShape(4),
     fallback: ImageVector = Icons.Rounded.MusicNote,
     contentDescription: String? = null,
+    /** False when the caller paints its own colour underneath and doesn't want the grey note box. */
+    placeholder: Boolean = true,
 ) {
     val dataSaver = LocalDataSaver.current
     val source = if (dataSaver) url?.replace("1000x1000", "150x150")?.replace("480x480", "150x150") else url
     Box(
-        modifier = modifier.clip(shape).background(SpitifyColors.Highlight),
+        modifier = modifier.clip(shape).then(if (placeholder) Modifier.background(SpitifyColors.Highlight) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = fallback,
-            contentDescription = null,
-            tint = SpitifyColors.TextMuted,
-            modifier = Modifier.fillMaxSize(0.4f),
-        )
+        if (placeholder) {
+            Icon(
+                imageVector = fallback,
+                contentDescription = null,
+                tint = SpitifyColors.TextMuted,
+                modifier = Modifier.fillMaxSize(0.4f),
+            )
+        }
         if (!source.isNullOrBlank()) {
             val context = LocalContext.current
             val request = remember(source) {

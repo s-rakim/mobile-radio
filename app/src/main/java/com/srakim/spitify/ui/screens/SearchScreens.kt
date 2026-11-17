@@ -94,6 +94,8 @@ import com.srakim.spitify.ui.components.TrackRow
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 /** The Search tab: a search box that opens the real search, and genre tiles to browse. */
 @Composable
@@ -222,7 +224,21 @@ private fun <T> interleave(vararg lists: List<T>): List<T> {
     return out
 }
 
-private enum class ResultFilter(val label: String) { TOP("Top"), SONGS("Songs"), RADIO("Radio"), ARTISTS("Artists"), PLAYLISTS("Albums & playlists") }
+private enum class ResultFilter(val label: String) {
+    TOP("Top"), SONGS("Songs"), ARTISTS("Artists"), ALBUMS("Albums"), PLAYLISTS("Playlists"),
+    LYRICS("Lyrics"), GENRES("Genres & moods"), RADIO("Radio"),
+}
+
+/** Spotify's search filters (artist:, album:, year: and friends) only mean something to Spotify. */
+private val FIELD = Regex("\\b(artist|album|track|year|genre|isrc|upc|tag):(\"[^\"]*\"|\\S+)", RegexOption.IGNORE_CASE)
+
+/** The query for every source that isn't Spotify: `artist:"Rihanna" year:2016` → `Rihanna`. */
+private fun plainQuery(q: String): String = FIELD.replace(q) { m ->
+    when (m.groupValues[1].lowercase()) {
+        "artist", "album", "track", "genre" -> m.groupValues[2].trim('"')
+        else -> ""
+    }
+}.replace(Regex("\\s+"), " ").trim()
 
 /** The focused search page with live results, filters and recent searches. */
 @Composable
@@ -246,27 +262,72 @@ fun SearchInputScreen(initialQuery: String = "") {
         debounced = query.trim()
     }
 
-    val results = rememberLoad("search", debounced) { catalog.search(debounced) }
+    val plain = plainQuery(debounced)
+    val results = rememberLoad("search", plain) { catalog.search(plain) }
     // Spotify's catalogue, when you've signed in to Spotify. Those songs play in the Spotify app
     // (Premium) or as the closest match from Spitify's sources.
     val spotifyImport = com.srakim.spitify.ui.LocalApp.current.spotifyImport
     val spotifyLoad = rememberLoad("search-spotify", debounced) {
-        if (spotifyImport.hasToken) runCatching { spotifyImport.searchAll(debounced) }.getOrDefault(SearchResults.Empty) else SearchResults.Empty
+        if (spotifyImport.hasToken) runCatching { spotifyImport.searchAll(debounced) }.getOrDefault(SearchResults.Empty)
+            .also { spotifyImport.meta.remember(it.artists) }
+        else SearchResults.Empty
     }
     val spotifyResults = (spotifyLoad.state as? Load.Ready)?.data ?: SearchResults.Empty
-    val spotifyTracks = spotifyResults.tracks
+    // The Songs tab asks Spotify for three pages (it hands out 10 at a time now).
+    val moreSpotify = rememberLoad("search-spotify-songs", debounced, filter == ResultFilter.SONGS) {
+        if (filter == ResultFilter.SONGS && spotifyImport.hasToken) runCatching { spotifyImport.searchTracks(debounced, 30) }.getOrDefault(emptyList()) else emptyList()
+    }
+    val spotifyTracks = (moreSpotify.state as? Load.Ready)?.data?.takeIf { it.isNotEmpty() } ?: spotifyResults.tracks
+
+    // Finding a song by its words: your own songs' lyrics first (instant, offline), then the internet.
+    val app = com.srakim.spitify.ui.LocalApp.current
+    val indexSize by app.lyricIndex.size.collectAsStateWithLifecycle()
+    val lyricWords = com.srakim.spitify.data.LyricText.words(plain).size
+    val wantLyrics = filter == ResultFilter.LYRICS || lyricWords >= 4
+    val localLyrics = remember(plain, indexSize, wantLyrics) { if (wantLyrics) app.lyricIndex.search(plain) else emptyList() }
+    val onlineLyricsLoad = rememberLoad("search-lyrics", plain, wantLyrics) { if (wantLyrics) app.lyrics.searchText(plain) else emptyList() }
+    val lyricMatches = run {
+        val seen = HashSet<String>()
+        (localLyrics + (onlineLyricsLoad.state as? Load.Ready)?.data.orEmpty())
+            .filter { seen.add(com.srakim.spitify.data.LyricText.norm(it.title) + "|" + com.srakim.spitify.data.LyricText.norm(it.artist).substringBefore(" feat")) }
+    }
+    val lyricsBusy = wantLyrics && onlineLyricsLoad.state is Load.Loading
+    val scope = rememberCoroutineScope()
+    fun playLyricMatch(m: com.srakim.spitify.data.LyricMatch) {
+        library.addRecentSearch(query)
+        val own = m.track
+        if (own != null) {
+            player.play(listOf(own), 0, PlayContext("lyrics:$plain", "Lyrics search", "SEARCH"))
+            return
+        }
+        actions.toast("Finding ${m.title}…")
+        scope.launch {
+            val first = m.artist.split(",", "&", " feat", " ft.").first().trim()
+            val found = runCatching {
+                if (spotifyImport.hasToken) {
+                    spotifyImport.searchTracks("track:\"${m.title}\" artist:\"$first\"").firstOrNull()
+                        ?: spotifyImport.searchTracks("${m.title} $first").firstOrNull()
+                } else {
+                    val want = com.srakim.spitify.data.LyricText.norm(m.title)
+                    catalog.searchForMatch("${m.title} $first").let { list -> list.firstOrNull { com.srakim.spitify.data.LyricText.norm(it.title).contains(want) } ?: list.firstOrNull() }
+                }
+            }.getOrNull()
+            if (found != null) player.play(listOf(found), 0, PlayContext("lyrics:$plain", "Lyrics search", "SEARCH"))
+            else actions.toast("Couldn't find ${m.title} to play")
+        }
+    }
     // The Spitify server's sources load on their own so a slow YouTube lookup never holds the rest up.
-    val youtube = rememberLoad("search-youtube", debounced) { catalog.searchYouTube(debounced) }
-    val openCatalogs = rememberLoad("search-open", debounced) { catalog.searchOpenCatalogs(debounced) }
-    val soundcloud = rememberLoad("search-soundcloud", debounced) { catalog.searchSoundCloud(debounced) }
+    val youtube = rememberLoad("search-youtube", plain) { catalog.searchYouTube(plain) }
+    val openCatalogs = rememberLoad("search-open", plain) { catalog.searchOpenCatalogs(plain) }
+    val soundcloud = rememberLoad("search-soundcloud", plain) { catalog.searchSoundCloud(plain) }
     val soundcloudTracks = (soundcloud.state as? Load.Ready)?.data.orEmpty()
     // The open catalogues come straight from the phone, one call each, so whichever answers
     // first shows first and a slow one never holds the rest up.
-    val archiveLoad = rememberLoad("search-archive", debounced) { catalog.searchArchive(debounced) }
-    val ccLoad = rememberLoad("search-ccmixter", debounced) { catalog.searchCcMixter(debounced) }
-    val jamendoLoad = rememberLoad("search-jamendo", debounced) { catalog.searchJamendo(debounced) }
-    val scDirectLoad = rememberLoad("search-sc-direct", debounced) { catalog.searchSoundCloudDirect(debounced) }
-    val extrasLoad = rememberLoad("search-open-extras", debounced) { catalog.searchOpenExtras(debounced) }
+    val archiveLoad = rememberLoad("search-archive", plain) { catalog.searchArchive(plain) }
+    val ccLoad = rememberLoad("search-ccmixter", plain) { catalog.searchCcMixter(plain) }
+    val jamendoLoad = rememberLoad("search-jamendo", plain) { catalog.searchJamendo(plain) }
+    val scDirectLoad = rememberLoad("search-sc-direct", plain) { catalog.searchSoundCloudDirect(plain) }
+    val extrasLoad = rememberLoad("search-open-extras", plain) { catalog.searchOpenExtras(plain) }
     val directTracks = interleave(
         (jamendoLoad.state as? Load.Ready)?.data.orEmpty(),
         (ccLoad.state as? Load.Ready)?.data.orEmpty(),
@@ -274,7 +335,7 @@ fun SearchInputScreen(initialQuery: String = "") {
     )
     val scDirect = (scDirectLoad.state as? Load.Ready)?.data.orEmpty()
     val extras = (extrasLoad.state as? Load.Ready)?.data
-    val radio = rememberLoad("search-radio", debounced) { catalog.searchRadio(debounced) }
+    val radio = rememberLoad("search-radio", plain) { catalog.searchRadio(plain) }
     val stations = (radio.state as? Load.Ready)?.data.orEmpty()
     val radioBusy = radio.state is Load.Loading
     val youtubeTracks = (youtube.state as? Load.Ready)?.data.orEmpty()
@@ -329,6 +390,7 @@ fun SearchInputScreen(initialQuery: String = "") {
                 onPick = { query = it },
                 onRemove = library::removeRecentSearch,
                 onClear = library::clearRecentSearches,
+                suggestions = { SearchSuggestions(onPick = { query = it }) },
             )
             return@Column
         }
@@ -357,6 +419,14 @@ fun SearchInputScreen(initialQuery: String = "") {
                     )
                 }
                 val radioContext = PlayContext("radio-search:$debounced", "\"$debounced\" stations", "RADIO")
+                if (filter == ResultFilter.LYRICS) {
+                    LyricResults(lyricMatches, lyricsBusy, lyricWords, indexSize, ::playLyricMatch)
+                    return@Column
+                }
+                if (filter == ResultFilter.GENRES) {
+                    GenreResults(plain, onPick = { actions.openMix(it) }, onSpotifyGenre = if (spotifyImport.hasToken) ({ query = "genre:\"$plain\"" }) else null)
+                    return@Column
+                }
                 if (filter == ResultFilter.RADIO) {
                     when {
                         stations.isNotEmpty() -> LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
@@ -387,7 +457,7 @@ fun SearchInputScreen(initialQuery: String = "") {
                 }
                 val context = PlayContext("search:$debounced", "\"$debounced\" in Search", "SEARCH")
                 LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
-                    if ((youtubeBusy || soundcloudBusy) && filter != ResultFilter.ARTISTS && filter != ResultFilter.PLAYLISTS) {
+                    if ((youtubeBusy || soundcloudBusy) && (filter == ResultFilter.TOP || filter == ResultFilter.SONGS)) {
                         item {
                             Text(
                                 when {
@@ -418,6 +488,24 @@ fun SearchInputScreen(initialQuery: String = "") {
                                     modifier = Modifier.appear(i),
                                 )
                             }
+                            if (lyricMatches.isNotEmpty()) {
+                                item {
+                                    SectionHeader("Songs with these lyrics")
+                                }
+                                items(lyricMatches.take(3), key = { "ly:" + it.title + it.artist }) { m ->
+                                    LyricRow(m) { playLyricMatch(m) }
+                                }
+                                if (lyricMatches.size > 3) {
+                                    item {
+                                        Text(
+                                            "See all lyric matches",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = SpitifyColors.TextSecondary,
+                                            modifier = Modifier.clickable { filter = ResultFilter.LYRICS }.padding(horizontal = 16.dp, vertical = 12.dp),
+                                        )
+                                    }
+                                }
+                            }
                             if (stations.isNotEmpty()) {
                                 item {
                                     SectionHeader("Radio stations")
@@ -444,11 +532,23 @@ fun SearchInputScreen(initialQuery: String = "") {
                                     }
                                 }
                             }
-                            if (data.playlists.isNotEmpty()) {
+                            val albums = data.playlists.filter { it.label != "Playlist" }
+                            val lists = data.playlists.filter { it.label == "Playlist" }
+                            if (albums.isNotEmpty()) {
+                                item {
+                                    SectionHeader("Albums")
+                                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        items(albums, key = { "al:" + it.id }) { p ->
+                                            MediaCard(p.name, listOfNotNull(p.year, p.owner.takeIf { it.isNotBlank() }).joinToString(" • "), onClick = { saveQuery(); actions.openPlaylist(p.id) }, image = p.artwork, width = 140.dp)
+                                        }
+                                    }
+                                }
+                            }
+                            if (lists.isNotEmpty()) {
                                 item {
                                     SectionHeader("Playlists")
                                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                        items(data.playlists, key = { it.id }) { p ->
+                                        items(lists, key = { it.id }) { p ->
                                             MediaCard(p.name, "${p.label} • ${p.owner}", onClick = { saveQuery(); actions.openPlaylist(p.id) }, image = p.artwork, width = 140.dp)
                                         }
                                     }
@@ -470,8 +570,11 @@ fun SearchInputScreen(initialQuery: String = "") {
                             ArtistRow(a) { saveQuery(); actions.openArtist(a.id) }
                         }
                         // Stations get their own list above, they never reach this one.
-                        ResultFilter.RADIO -> Unit
-                        ResultFilter.PLAYLISTS -> items(data.playlists, key = { it.id }) { p ->
+                        ResultFilter.RADIO, ResultFilter.LYRICS, ResultFilter.GENRES -> Unit
+                        ResultFilter.ALBUMS, ResultFilter.PLAYLISTS -> items(
+                            data.playlists.filter { (it.label == "Playlist") == (filter == ResultFilter.PLAYLISTS) },
+                            key = { it.id },
+                        ) { p ->
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -513,12 +616,16 @@ private fun ArtistRow(artist: Artist, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RecentSearches(items: List<String>, onPick: (String) -> Unit, onRemove: (String) -> Unit, onClear: () -> Unit) {
-    if (items.isEmpty()) {
-        EmptyState("Play what you love", "Search for artists, songs and playlists.")
-        return
-    }
+private fun RecentSearches(
+    items: List<String>,
+    onPick: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit,
+    suggestions: @Composable () -> Unit,
+) {
     LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
+        item { suggestions() }
+        if (items.isEmpty()) return@LazyColumn
         item {
             Text("Recent searches", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
         }
@@ -552,5 +659,146 @@ private fun RecentSearches(items: List<String>, onPick: (String) -> Unit, onRemo
                 }
             }
         }
+    }
+}
+
+/**
+ * What the search page shows before you type: trending names to tap, your top Spotify artists,
+ * and the ways you can search (a line of lyrics, artist:, album:, year:, genre:).
+ */
+@Composable
+private fun SearchSuggestions(onPick: (String) -> Unit) {
+    val api = LocalApi.current
+    val app = com.srakim.spitify.ui.LocalApp.current
+    val spotify by app.spotifyLibrary.state.collectAsStateWithLifecycle()
+    val trending = rememberLoad("search-trending") {
+        runCatching { api.trendingTracks(limit = 30) }.getOrDefault(emptyList())
+            .flatMap { listOf(it.artistSearchName, it.title) }
+            .filter { it.isNotBlank() && it.length <= 28 }
+            .distinctBy { it.lowercase() }
+            .take(12)
+    }
+    val trendingNames = (trending.state as? Load.Ready)?.data.orEmpty()
+    val yourArtists = spotify.topArtists.map { it.name }.take(10)
+    val signedIn = app.spotifyImport.hasToken
+    Column(Modifier.padding(top = 8.dp)) {
+        if (yourArtists.isNotEmpty()) SuggestionRow("Your top artists", yourArtists, onPick)
+        if (trendingNames.isNotEmpty()) SuggestionRow("Trending searches", trendingNames, onPick)
+        val ways = buildList {
+            add("shine bright like a diamond")
+            if (signedIn) {
+                add("artist:\"Rihanna\" year:2016")
+                add("album:\"Anti\"")
+                add("genre:afrobeats")
+                add("year:1990-1999")
+                add("tag:new")
+            }
+        }
+        SuggestionRow("Ways to search", ways, onPick)
+        Text(
+            if (signedIn) "Type a line you remember to find the song by its lyrics. Spotify filters like artist:, album:, year: and genre: work too."
+            else "Type a line you remember to find the song by its lyrics.",
+            style = MaterialTheme.typography.bodySmall,
+            color = SpitifyColors.TextSecondary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun SuggestionRow(title: String, items: List<String>, onPick: (String) -> Unit) {
+    Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp))
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(items, key = { title + it }) { q -> Pill(q, false, onClick = { onPick(q) }) }
+    }
+}
+
+@Composable
+private fun LyricResults(
+    matches: List<com.srakim.spitify.data.LyricMatch>,
+    busy: Boolean,
+    words: Int,
+    indexed: Int,
+    onPlay: (com.srakim.spitify.data.LyricMatch) -> Unit,
+) {
+    when {
+        words < 2 -> EmptyState("Search by lyrics", "Type at least a few words from the song, like a line from the chorus.")
+        matches.isEmpty() && busy -> SkeletonTrackList()
+        matches.isEmpty() -> EmptyState("No song with those words", "Try a different line, or fewer words. Lyrics of $indexed of your songs are on this phone.")
+        else -> LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomInset.current + 16.dp)) {
+            itemsIndexed(matches, key = { _, m -> "lyr:" + m.title + "|" + m.artist }) { i, m ->
+                LyricRow(m, Modifier.appear(i)) { onPlay(m) }
+            }
+            item {
+                Text(
+                    (if (busy) "Still looking online… " else "") + "Lyrics of $indexed of your songs are searchable on this phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SpitifyColors.TextMuted,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A song found by its words: cover, title, artist, and the matching line underneath. */
+@Composable
+private fun LyricRow(m: com.srakim.spitify.data.LyricMatch, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Row(
+        modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(m.track?.artwork ?: m.artwork, Modifier.size(52.dp), RoundedCornerShape(4.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(m.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOf(m.artist, if (m.track != null) "In your library" else m.source).filter { it.isNotBlank() }.joinToString(" • "),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            m.line?.let {
+                Text(
+                    "\u201C${it.trim()}\u201D",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                    color = SpitifyColors.TextPrimary.copy(alpha = 0.8f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Genres and moods matching the search, as tiles that open a mix. */
+@Composable
+private fun GenreResults(query: String, onPick: (String) -> Unit, onSpotifyGenre: (() -> Unit)?) {
+    val words = com.srakim.spitify.data.LyricText.words(query)
+    val matching = Genres.all.filter { g -> words.any { w -> com.srakim.spitify.data.LyricText.norm(g.name).contains(w) } }
+    val shown = matching.ifEmpty { Genres.all }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(gridColumns(LocalContentWidth.current, phone = 2, minCell = 200.dp)),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalBottomInset.current + 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (onSpotifyGenre != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    "Songs Spotify files under \u201C$query\u201D",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = SpitifyColors.Accent,
+                    modifier = Modifier.clickable(onClick = onSpotifyGenre).padding(vertical = 10.dp),
+                )
+            }
+        }
+        if (matching.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("Browse all genres and moods", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 6.dp))
+            }
+        }
+        items(shown, key = { "g:" + it.name }) { g -> GenreTile(g.name, Color(g.color)) { onPick(g.name) } }
     }
 }

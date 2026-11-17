@@ -156,6 +156,9 @@ class AppActions(
      */
     fun openArtistOf(track: Track) = when {
         track.artistId.isNotBlank() -> openArtist(track.artistId)
+        // Signed in to Spotify: their Spotify artist page, found by name.
+        track.artistSearchName.isNotBlank() && app.spotifyImport.hasToken ->
+            openArtist(com.srakim.spitify.data.Catalog.NAME_PREFIX + track.artistSearchName.split(",", "&", " feat", " ft.").first().trim())
         track.artistSearchName.isNotBlank() -> searchFor(track.artistSearchName)
         else -> Unit
     }

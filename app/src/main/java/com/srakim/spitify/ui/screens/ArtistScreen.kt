@@ -67,7 +67,10 @@ import com.srakim.spitify.data.Artist
 import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.Playlist
 import com.srakim.spitify.data.RecentItem
+import com.srakim.spitify.data.SpotifyMeta
 import com.srakim.spitify.data.SubsonicApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalBottomInset
@@ -97,7 +100,7 @@ private val HeroHeight = 380.dp
  * About. The photo zooms out and darkens as you scroll, and the play button sticks to the bar.
  */
 @Composable
-fun ArtistScreen(id: String) {
+fun ArtistScreen(requestedId: String) {
     val catalog = LocalCatalog.current
     val library = LocalLibrary.current
     val player = LocalPlayer.current
@@ -111,12 +114,35 @@ fun ArtistScreen(id: String) {
     var discFilter by rememberSaveable { mutableStateOf("Popular releases") }
     val listState = rememberLazyListState()
 
-    val load = rememberLoad("artist", id) { catalog.artist(id) }
-    val releasesLoad = rememberLoad("artist-releases", id) { catalog.releases(id) }
-    val relatedLoad = rememberLoad("artist-related", id) { catalog.related(id) }
-    val artist = (load.state as? Load.Ready)?.data?.first
+    // Signed in to Spotify, every artist page is Spotify's: an artist from your server or Audius
+    // opens the Spotify artist of the same name.
+    val resolve = rememberLoad("artist-resolve", requestedId) { catalog.preferredArtistId(requestedId) }
+    val resolved = (resolve.state as? Load.Ready)?.data
+    if (resolve.state is Load.Ready && resolved == null) {
+        // Only a name, and Spotify doesn't know it: list their songs from every source instead.
+        LaunchedEffect(requestedId) {
+            actions.back()
+            actions.searchFor(requestedId.removePrefix(com.srakim.spitify.data.Catalog.NAME_PREFIX))
+        }
+    }
+    val id = resolved ?: requestedId
+    val load = rememberLoad("artist", resolved) { if (resolved == null) awaitCancellation() else catalog.artist(resolved) }
+    val releasesLoad = rememberLoad("artist-releases", resolved) { if (resolved == null) awaitCancellation() else catalog.releases(resolved) }
+    val relatedLoad = rememberLoad("artist-related", resolved) { if (resolved == null) awaitCancellation() else catalog.related(resolved) }
+    // A dropped connection shouldn't leave a page with nothing on it: keep the skeleton up and
+    // quietly ask again until it answers.
+    LaunchedEffect(load.state) {
+        if (load.state is Load.Failed) {
+            delay(2_500)
+            load.retry()
+        }
+    }
+    val cachedArtist = remember(id) { catalog.spotify?.meta?.cached(id) }
+    val artist = (load.state as? Load.Ready)?.data?.first ?: cachedArtist
     val tracks = (load.state as? Load.Ready)?.data?.second.orEmpty()
-    val releases = (releasesLoad.state as? Load.Ready)?.data.orEmpty()
+    val allReleases = (releasesLoad.state as? Load.Ready)?.data.orEmpty()
+    val releases = allReleases.filter { it.label != SpotifyMeta.APPEARS_ON }
+    val appearsOn = allReleases.filter { it.label == SpotifyMeta.APPEARS_ON }
     val related = (relatedLoad.state as? Load.Ready)?.data.orEmpty()
     // Spotify fills the header with a photo of the artist, so the square portrait beats a wide banner.
     val heroImage = artist?.pictureLarge ?: artist?.cover
@@ -189,15 +215,16 @@ fun ArtistScreen(id: String) {
                     }
                 }
 
-                when (val state = load.state) {
-                    is Load.Loading -> item { SkeletonTrackList(6) }
-                    is Load.Failed -> item { ErrorState(state.message, load.retry) }
+                when (load.state) {
+                    is Load.Loading, is Load.Failed -> item { SkeletonTrackList(6) }
                     is Load.Ready -> {
                         item(key = "listeners") {
                             Text(
                                 when {
                                     SubsonicApi.isServer(id) -> "On your server"
                                     (artist?.followers ?: 0) > 0 -> "${"%,d".format(artist?.followers ?: 0)} followers"
+                                    // Spotify stopped sending follower counts to apps like this one, genres it still sends.
+                                    artist?.genres.orEmpty().isNotEmpty() -> artist!!.genres.take(3).joinToString(" • ") { g -> g.replaceFirstChar { it.titlecase() } }
                                     else -> "${tracks.size} songs"
                                 },
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
@@ -256,7 +283,7 @@ fun ArtistScreen(id: String) {
                                 SectionHeader("Discography")
                                 val kinds = listOf("Popular releases", "Albums", "Singles and EPs").filter { k ->
                                     when (k) {
-                                        "Albums" -> releases.any { it.label == "Album" }
+                                        "Albums" -> releases.any { it.label == "Album" || it.label == "Compilation" }
                                         "Singles and EPs" -> releases.any { it.label == "Single" }
                                         else -> true
                                     }
@@ -268,7 +295,7 @@ fun ArtistScreen(id: String) {
                                 }
                             }
                             val pickedReleases = when (discFilter) {
-                                "Albums" -> releases.filter { it.label == "Album" }
+                                "Albums" -> releases.filter { it.label == "Album" || it.label == "Compilation" }
                                 "Singles and EPs" -> releases.filter { it.label == "Single" }
                                 else -> releases
                             }.take(6)
@@ -294,9 +321,20 @@ fun ArtistScreen(id: String) {
                             }
                         }
 
+                        if (appearsOn.isNotEmpty()) {
+                            item {
+                                SectionHeader("Appears on")
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    items(appearsOn.take(20), key = { "ap:" + it.id }) { p ->
+                                        MediaCard(p.name, listOfNotNull(p.year, p.owner.takeIf { it.isNotBlank() }).joinToString(" • "), onClick = { actions.openPlaylist(p.id) }, image = p.artwork, width = 140.dp)
+                                    }
+                                }
+                            }
+                        }
                         if (related.isNotEmpty()) {
                             item {
-                                SectionHeader("Fans also like")
+                                // Spotify keeps "Fans also like" to itself now, so Spotify pages show who they record with.
+                                SectionHeader(if (id.startsWith("spotify:")) "Works with" else "Fans also like")
                                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     items(related, key = { it.id }) { a ->
                                         MediaCard(a.name, "Artist", onClick = { actions.openArtist(a.id) }, image = a.picture, round = true, width = 140.dp)
@@ -395,11 +433,15 @@ private fun AboutCard(artist: Artist, songs: Int) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
         Column(Modifier.align(Alignment.BottomStart).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                if (artist.followers > 0) "${formatCount(artist.followers)} followers" else "$songs songs",
+                when {
+                    artist.followers > 0 -> "${formatCount(artist.followers)} followers"
+                    artist.genres.isNotEmpty() -> artist.genres.take(3).joinToString(" • ") { g -> g.replaceFirstChar { it.titlecase() } }
+                    else -> "$songs songs"
+                },
                 style = MaterialTheme.typography.titleMedium,
             )
             artist.bio?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f), maxLines = 5, overflow = TextOverflow.Ellipsis)
             }
         }
     }

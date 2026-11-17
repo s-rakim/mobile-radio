@@ -1,7 +1,16 @@
 package com.srakim.spitify.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -38,9 +47,92 @@ class LyricsApi(private val client: OkHttpClient) {
         val result = withContext(Dispatchers.IO) {
             runCatching { exact(track) ?: search(track) }.getOrNull()
         }
-        if (result != null) found[track.id] = result else missing += track.id
+        if (result != null) {
+            found[track.id] = result
+            onFound?.invoke(track, result)
+        } else {
+            missing += track.id
+        }
         return result
     }
+
+    /** Told about every song whose lyrics were found, so they can go into the lyric index. */
+    @Volatile
+    var onFound: ((Track, Lyrics) -> Unit)? = null
+
+    /** Whether a lookup already came back empty, so the indexer doesn't ask again this session. */
+    fun knownMissing(track: Track) = track.id in missing
+
+    // ---------- Finding a song by its words ----------
+
+    /**
+     * Songs whose lyrics contain [snippet], from the internet. Two places are asked at once:
+     *  - Genius' public song search, which matches lyrics as well as titles;
+     *  - LRCLIB, whose search matches titles, artists and albums but returns the lyrics too,
+     *    so a chorus that's also the title is caught and the line can be checked.
+     * Then the top few get their lyrics fetched so the matching line can be shown.
+     */
+    suspend fun searchText(snippet: String): List<LyricMatch> = coroutineScope {
+        val q = snippet.trim()
+        if (LyricText.words(q).size < 2) return@coroutineScope emptyList()
+        val genius = async(Dispatchers.IO) { withTimeoutOrNull(ONLINE_TIMEOUT_MS) { runCatching { genius(q) }.getOrNull() }.orEmpty() }
+        val lrclib = async(Dispatchers.IO) { withTimeoutOrNull(ONLINE_TIMEOUT_MS) { runCatching { lrclibText(q) }.getOrNull() }.orEmpty() }
+        val inLyrics = lrclib.await().filter { it.line != null }
+        val seen = HashSet<String>()
+        val merged = (inLyrics + genius.await() + lrclib.await().filter { it.line == null })
+            .filter { seen.add(LyricText.norm(it.title) + "|" + LyricText.norm(it.artist)) }
+            .take(MAX_ONLINE)
+        // Fill in the matching line for the first few that don't have one yet.
+        merged.mapIndexed { i, m ->
+            async(Dispatchers.IO) {
+                if (m.line != null || i >= LINE_LOOKUPS) return@async m
+                val lyrics = withTimeoutOrNull(LINE_TIMEOUT_MS) {
+                    runCatching { exact(Track(id = "lyric:" + m.title + "|" + m.artist, title = m.title, artist = m.artist)) }.getOrNull()
+                }
+                m.copy(line = lyrics?.let { LyricText.bestLine(it.lines.map { l -> l.text }, q)?.first })
+            }
+        }.awaitAll()
+    }
+
+    private fun genius(q: String): List<LyricMatch> {
+        val url = "https://genius.com/api/search/song".toHttpUrl().newBuilder()
+            .addQueryParameter("q", q)
+            .addQueryParameter("per_page", "10")
+            .build()
+        val body = get(url.toString(), browser = true) ?: return emptyList()
+        val root = json.parseToJsonElement(body).jsonObject
+        val sections = (root["response"] as? JsonObject)?.get("sections") as? JsonArray ?: return emptyList()
+        return sections.flatMap { sec ->
+            ((sec as? JsonObject)?.get("hits") as? JsonArray).orEmpty().mapNotNull { hit ->
+                val h = hit as? JsonObject ?: return@mapNotNull null
+                val r = h["result"] as? JsonObject ?: return@mapNotNull null
+                val title = r.s("title") ?: return@mapNotNull null
+                val artist = (r["primary_artist"] as? JsonObject)?.s("name") ?: r.s("artist_names") ?: return@mapNotNull null
+                // Genius marks which part of the lyrics matched.
+                val line = (h["highlights"] as? JsonArray)?.firstNotNullOfOrNull { hl ->
+                    (hl as? JsonObject)?.takeIf { it.s("property") == "lyrics" }?.s("value")
+                }?.lines()?.firstOrNull { LyricText.norm(it).isNotBlank() }
+                LyricMatch(title = title, artist = artist, artwork = r.s("song_art_image_thumbnail_url"), line = line, source = "Genius")
+            }
+        }
+    }
+
+    private fun lrclibText(q: String): List<LyricMatch> {
+        val url = "https://lrclib.net/api/search".toHttpUrl().newBuilder().addQueryParameter("q", q).build()
+        val body = get(url.toString()) ?: return emptyList()
+        return json.decodeFromString<List<Entry>>(body)
+            .filter { !it.trackName.isNullOrBlank() && !it.artistName.isNullOrBlank() }
+            .filterNot { KARAOKE.containsMatchIn(it.trackName.orEmpty()) }
+            .mapNotNull { e ->
+                val lines = (e.plainLyrics ?: e.syncedLyrics?.let(::parseLrc)?.joinToString("\n") { it.text }).orEmpty().lines()
+                val hit = LyricText.bestLine(lines, q)
+                // Title-only matches are kept only when the words are the title itself.
+                if (hit == null && !LyricText.norm(e.trackName!!).contains(LyricText.norm(q))) return@mapNotNull null
+                LyricMatch(title = e.trackName!!, artist = e.artistName!!, line = hit?.takeIf { it.second >= 0.8 }?.first, source = "LRCLIB")
+            }
+    }
+
+    private fun JsonObject.s(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 
     private fun exact(track: Track): Lyrics? {
         val url = "https://lrclib.net/api/get".toHttpUrl().newBuilder()
@@ -63,8 +155,9 @@ class LyricsApi(private val client: OkHttpClient) {
             ?.toLyrics()
     }
 
-    private fun get(url: String): String? {
-        val request = Request.Builder().url(url).header("User-Agent", "Spitify (https://github.com/s-rakim/mobile-radio)").build()
+    private fun get(url: String, browser: Boolean = false): String? {
+        val agent = if (browser) BROWSER_AGENT else "Spitify (https://github.com/s-rakim/mobile-radio)"
+        val request = Request.Builder().url(url).header("User-Agent", agent).header("Accept", "application/json").build()
         return client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string() else null }
     }
 
@@ -89,5 +182,68 @@ class LyricsApi(private val client: OkHttpClient) {
                 LyricLine(min * 60_000 + sec * 1000 + frac, words)
             }
         }.sortedBy { it.timeMs }
+    }
+
+    private companion object {
+        const val ONLINE_TIMEOUT_MS = 7_000L
+        const val LINE_TIMEOUT_MS = 4_000L
+        const val LINE_LOOKUPS = 5
+        const val MAX_ONLINE = 15
+        const val BROWSER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+        val KARAOKE = Regex("karaoke|instrumental|originally performed", RegexOption.IGNORE_CASE)
+    }
+}
+
+/** A song found by its lyrics. [track] is set when it's already playable (from your library). */
+data class LyricMatch(
+    val title: String,
+    val artist: String,
+    val artwork: String? = null,
+    /** The line that matched, as written in the lyrics. */
+    val line: String? = null,
+    val track: Track? = null,
+    val source: String = "",
+)
+
+/** Text helpers shared by the online search and the on-phone lyric index. */
+object LyricText {
+    /** Lower case, no accents or punctuation, "don't" → "dont", single spaces. */
+    fun norm(s: String): String = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}"), "")
+        .replace(Regex("['’`]"), "")
+        .replace(Regex("[^\\p{L}\\p{N} ]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+    fun words(s: String): List<String> = norm(s).split(' ').filter { it.isNotBlank() }
+
+    /**
+     * The lyric line that best matches [query] and how well (1.0 = the words appear exactly).
+     * Looks at each line and each pair of lines, since a remembered bit often runs across two.
+     * Loose matches need most of the words, in any order; null when nothing comes close.
+     */
+    fun bestLine(lines: List<String>, query: String): Pair<String, Double>? {
+        val q = norm(query)
+        val qWords = q.split(' ').filter { it.length > 1 }.toSet()
+        if (q.isEmpty()) return null
+        val clean = lines.filter { it.isNotBlank() }
+        var best: Pair<String, Double>? = null
+        for (i in clean.indices) {
+            for (span in 1..2) {
+                if (i + span > clean.size) break
+                val text = clean.subList(i, i + span).joinToString(" ")
+                val n = norm(text)
+                val score = when {
+                    n.contains(q) -> 1.0
+                    qWords.size >= 3 -> {
+                        val have = n.split(' ').toSet()
+                        qWords.count { it in have }.toDouble() / qWords.size * 0.95
+                    }
+                    else -> 0.0
+                }
+                if (score > (best?.second ?: 0.0)) best = clean[i] to score
+            }
+        }
+        return best?.takeIf { it.second >= 0.75 }
     }
 }

@@ -148,6 +148,29 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         signedIn.value = true
     }
 
+    /**
+     * An app-only token from a client id and secret, with no account behind it. Only the screen
+     * tour uses this, so artist pages and song details can be checked on an emulator without
+     * anyone signing in. Calls about "you" (/me) don't work with it, and their 401s must not
+     * throw this token away.
+     */
+    @Volatile
+    private var appTokenOnly = false
+
+    fun useAppToken(id: String, secret: String) {
+        val basic = Base64.encodeToString("$id:$secret".toByteArray(), Base64.NO_WRAP)
+        val reply = execute(
+            Request.Builder().url("https://accounts.spotify.com/api/token")
+                .header("Authorization", "Basic $basic")
+                .post(FormBody.Builder().add("grant_type", "client_credentials").build())
+                .build(),
+        ).jsonObject
+        val access = reply["access_token"]?.jsonPrimitive?.contentOrNull ?: throw IOException("Spotify didn't hand over a token")
+        val expires = reply["expires_in"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 3600
+        appTokenOnly = true
+        prefs.edit().putString(KEY_TOKEN, access).putLong(KEY_EXPIRES, System.currentTimeMillis() + expires * 1000 - 60_000).apply()
+    }
+
     fun signOut() {
         prefs.edit().clear().apply()
         signedIn.value = false
@@ -236,14 +259,22 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
      * player hands to the Spotify app, or swaps for a match from Spitify's sources when the
      * Spotify app can't play them (no Premium, not installed, not connected).
      */
-    suspend fun searchTracks(query: String, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
-        if (!hasToken || query.isBlank()) return@withContext emptyList()
-        val url = "https://api.spotify.com/v1/search?type=track&limit=$limit&q=" + Uri.encode(query.trim())
-        val items = api(url).jsonObject["tracks"]?.jsonObject?.get("items")?.jsonArray.orEmpty()
-        items.mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+    suspend fun searchTracks(query: String, limit: Int = 10): List<Track> = coroutineScope {
+        if (!hasToken || query.isBlank()) return@coroutineScope emptyList()
+        // Spotify hands out at most 10 results per search call now, so bigger lists are pages.
+        val q = Uri.encode(query.trim())
+        (0 until (limit + 9) / 10).map { page ->
+            async(Dispatchers.IO) {
+                runCatching {
+                    api("https://api.spotify.com/v1/search?type=track&limit=10&offset=${page * 10}&q=$q")
+                        .jsonObject["tracks"]?.jsonObject?.get("items")?.jsonArray.orEmpty()
+                        .mapNotNull { (it as? JsonObject)?.let(::toTrack) }
+                }.getOrElse { if (page == 0) throw it else emptyList() }
+            }
+        }.awaitAll().flatten().distinctBy { it.id }.take(limit)
     }
 
-    private fun toTrack(t: JsonObject): Track? {
+    internal fun toTrack(t: JsonObject): Track? {
         val uri = t.str("uri")?.takeIf { it.startsWith(TRACK_PREFIX) } ?: return null
         val album = t["album"] as? JsonObject
         val images = (album?.get("images") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
@@ -323,28 +354,18 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             album to tracks
         } else {
             val o = api("https://api.spotify.com/v1/playlists/$id?fields=id,uri,name,description,images,owner(display_name,id),followers(total),external_urls").jsonObject
-            o.let(::toPlaylist) to pagedTracks("https://api.spotify.com/v1/playlists/$id/tracks?limit=100", 500, fallback = "https://api.spotify.com/v1/playlists/$id/items?limit=100")
+            o.let(::toPlaylist) to pagedTracks("https://api.spotify.com/v1/playlists/$id/items?limit=100", 500, fallback = "https://api.spotify.com/v1/playlists/$id/tracks?limit=100")
         }
     }
 
     /** An artist's page: who they are, their ten most played songs, and their releases. */
-    suspend fun artistPage(uri: String): Triple<Artist?, List<Track>, List<Playlist>> = coroutineScope {
-        val id = uri.substringAfterLast(':')
-        val info = async(Dispatchers.IO) { runCatching { toArtist(api("https://api.spotify.com/v1/artists/$id").jsonObject) }.getOrNull() }
-        val top = async(Dispatchers.IO) {
-            runCatching {
-                api("https://api.spotify.com/v1/artists/$id/top-tracks?market=from_token").jsonObject["tracks"]?.jsonArray.orEmpty()
-                    .mapNotNull { (it as? JsonObject)?.let(::toTrack) }
-            }.getOrDefault(emptyList())
-        }
-        val releases = async(Dispatchers.IO) {
-            runCatching {
-                api("https://api.spotify.com/v1/artists/$id/albums?include_groups=album,single&limit=30").jsonObject["items"]?.jsonArray.orEmpty()
-                    .mapNotNull { (it as? JsonObject)?.let(::toAlbum) }
-            }.getOrDefault(emptyList())
-        }
-        Triple(info.await(), top.await(), releases.await())
+    suspend fun artistPage(uri: String): Triple<Artist?, List<Track>, List<Playlist>> {
+        val page = meta.page(uri)
+        return Triple(page.artist, page.top, page.releases)
     }
+
+    /** Artist pages, song details and the rest of Spotify's catalogue info. See SpotifyMeta.kt. */
+    val meta: SpotifyMeta by lazy { SpotifyMeta(this, client) }
 
     /** Spotify's search across songs, artists, albums and playlists. */
     suspend fun searchAll(query: String): SearchResults = withContext(Dispatchers.IO) {
@@ -379,7 +400,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
     private fun images(o: JsonObject): List<String> =
         (o["images"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.str("url") }.orEmpty()
 
-    private fun toArtist(o: JsonObject): Artist? {
+    internal fun toArtist(o: JsonObject): Artist? {
         val uri = o.str("uri") ?: return null
         val img = images(o)
         return Artist(
@@ -388,11 +409,13 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             picture = img.getOrNull(1) ?: img.firstOrNull(),
             pictureLarge = img.firstOrNull(),
             cover = img.firstOrNull(),
+            // Development-mode apps no longer get follower counts (February 2026), so this is often 0.
             followers = (o["followers"] as? JsonObject)?.str("total")?.toIntOrNull() ?: 0,
+            genres = (o["genres"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty(),
         )
     }
 
-    private fun toPlaylist(o: JsonObject): Playlist? {
+    internal fun toPlaylist(o: JsonObject): Playlist? {
         val uri = o.str("uri") ?: return null
         val img = images(o)
         val owner = o["owner"] as? JsonObject
@@ -409,7 +432,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         )
     }
 
-    private fun toAlbum(o: JsonObject): Playlist? {
+    internal fun toAlbum(o: JsonObject): Playlist? {
         val uri = o.str("uri") ?: return null
         val img = images(o)
         val artist = (o["artists"] as? JsonArray)?.firstOrNull() as? JsonObject
@@ -444,7 +467,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         return found
     }
 
-    private fun api(url: String): JsonElement {
+    internal fun api(url: String): JsonElement {
         val t = freshToken() ?: throw IOException("Sign in to Spotify again")
         return try {
             execute(Request.Builder().url(url).header("Authorization", "Bearer $t").build())
@@ -459,7 +482,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     private fun execute(request: Request): JsonElement = client.newCall(request).execute().use { r ->
         val text = r.body?.string().orEmpty()
-        if (r.code == 401 && request.header("Authorization") != null) {
+        if (r.code == 401 && request.header("Authorization") != null && !appTokenOnly) {
             prefs.edit().remove(KEY_TOKEN).apply()
             throw Expired()
         }
@@ -670,7 +693,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
         return maxOf(jaccard, contains)
     }
 
-    private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+    internal fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 
     private fun randomString(length: Int): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

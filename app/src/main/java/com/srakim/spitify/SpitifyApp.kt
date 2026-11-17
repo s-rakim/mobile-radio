@@ -45,7 +45,9 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     }
 
     val api: AudiusApi by lazy { AudiusApi(httpClient) }
-    val lyrics: LyricsApi by lazy { LyricsApi(httpClient) }
+    val lyrics: LyricsApi by lazy { LyricsApi(httpClient).also { api -> api.onFound = { t, l -> lyricIndex.add(t, l) } } }
+    /** Lyrics of your own songs, kept on the phone so Search can find a song from a line. */
+    val lyricIndex: com.srakim.spitify.data.LyricIndex by lazy { com.srakim.spitify.data.LyricIndex(this, lyrics) }
     val server: SubsonicApi by lazy { SubsonicApi(httpClient, settings) }
     val localMusic: LocalMusic by lazy { LocalMusic(this) }
     val webServer: SpitifyServerApi by lazy { SpitifyServerApi(httpClient, settings) }
@@ -94,6 +96,16 @@ class SpitifyApp : Application(), ImageLoaderFactory {
         stats.start(player, social)
         dj.start()
         spotifyLibrary.start()
+        // Fill the lyric index with your songs in the background, after start-up has settled.
+        appScope.launch {
+            kotlinx.coroutines.delay(20_000)
+            kotlinx.coroutines.flow.combine(library.state, spotifyLibrary.state) { mine, sp ->
+                mine.liked + mine.recentTracks + mine.playlists.flatMap { it.tracks } + sp.liked + sp.topTracks + sp.recent
+            }.collect { songs ->
+                if (settings.current.showLyrics && !settings.current.offlineMode) lyricIndex.fill(songs)
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
         // Friends see what you're playing: tell the server when the song or play state changes,
         // and every couple of minutes while it keeps playing so it still shows as live.
         appScope.launch {

@@ -107,6 +107,8 @@ data class Artist(
     val trackCount: Int = 0,
     val bio: String? = null,
     val verified: Boolean = false,
+    /** Spotify's genre tags for the artist, e.g. "barbadian pop". */
+    val genres: List<String> = emptyList(),
 )
 
 /** A playlist the listener made on this device. */

@@ -278,6 +278,15 @@ fun SearchInputScreen(initialQuery: String = "") {
 
     val plain = plainQuery(debounced)
     val results = rememberLoad("search", plain) { catalog.search(plain) }
+    // A dropped Audius call is asked again once, quietly, instead of putting up an error.
+    var audiusRetried by remember(plain) { mutableStateOf(false) }
+    LaunchedEffect(results.state) {
+        if (results.state is Load.Failed && !audiusRetried) {
+            audiusRetried = true
+            delay(1_500)
+            results.retry()
+        }
+    }
     // Spotify's catalogue, when you've signed in to Spotify. Those songs play in the Spotify app
     // (Premium) or as the closest match from Spitify's sources.
     val spotifyImport = com.srakim.spitify.ui.LocalApp.current.spotifyImport
@@ -419,12 +428,15 @@ fun SearchInputScreen(initialQuery: String = "") {
             items(ResultFilter.entries.toList()) { f -> Pill(f.label, filter == f, onClick = { filter = f }) }
         }
 
-        when (val state = results.state) {
-            is Load.Loading -> SkeletonTrackList()
-            is Load.Failed -> ErrorState(state.message, results.retry)
-            is Load.Ready -> {
+        // Audius is one source among many: while it's slow or down, Spotify and the rest still
+        // show, the way Spotify's search never stalls on one shelf.
+        val audiusBusy = results.state is Load.Loading
+        val spotifyBusy = spotifyImport.hasToken && spotifyLoad.state is Load.Loading
+        run {
+            run {
+                val base = (results.state as? Load.Ready)?.data ?: SearchResults.Empty
                 // Top songs from each big source first, so one source can't push the others off the top.
-                val data = state.data.let {
+                val data = base.let {
                     val seen = HashSet<String>()
                     val merged = (interleave(spotifyTracks, youtubeTracks, soundcloudTracks, scDirect, it.tracks) + directTracks + openTracks)
                         .filter { t -> seen.add(t.title.lowercase().trim() + "|" + t.artist.lowercase().trim()) }
@@ -464,7 +476,7 @@ fun SearchInputScreen(initialQuery: String = "") {
                     }
                     return@Column
                 }
-                if (data.isEmpty && stations.isEmpty() && (serverBusy || radioBusy)) {
+                if (data.isEmpty && stations.isEmpty() && (serverBusy || radioBusy || audiusBusy || spotifyBusy)) {
                     SkeletonTrackList()
                     return@Column
                 }

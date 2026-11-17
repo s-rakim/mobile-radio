@@ -155,6 +155,9 @@ class AppActions(
      * otherwise a search for their name, which lists their songs from every source.
      */
     fun openArtistOf(track: Track) = when {
+        // A Spotify artist page needs a Spotify sign-in; without one, their songs from every source.
+        com.srakim.spitify.data.SpotifyImport.isSpotifyArtist(track.artistId) && !app.spotifyImport.hasToken && track.artistSearchName.isNotBlank() ->
+            searchFor(track.artistSearchName.split(",", "&", " feat", " ft.").first().trim())
         track.artistId.isNotBlank() -> openArtist(track.artistId)
         // Signed in to Spotify: their Spotify artist page, found by name.
         track.artistSearchName.isNotBlank() && app.spotifyImport.hasToken ->

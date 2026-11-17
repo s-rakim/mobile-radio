@@ -87,6 +87,7 @@ import com.srakim.spitify.ui.components.SkeletonShelf
 import com.srakim.spitify.ui.rememberLoad
 import com.srakim.spitify.ui.theme.SpitifyColors
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import java.util.Calendar
 
@@ -135,6 +136,18 @@ fun HomeScreen() {
             val all = async { api.trendingTracks(time = "allTime", limit = 30) }
             val playlists = async { api.trendingPlaylists() }
             HomeFeed(week.await(), month.await(), all.await(), playlists.await())
+        }
+    }
+
+    // Charts that didn't load are asked for again quietly, a little later each time.
+    var feedTries by remember { mutableStateOf(0) }
+    LaunchedEffect(feed.state) {
+        if (feed.state is Load.Failed && feedTries < 6) {
+            delay(3_000L shl feedTries.coerceAtMost(4))
+            feedTries++
+            feed.retry()
+        } else if (feed.state is Load.Ready) {
+            feedTries = 0
         }
     }
 
@@ -231,10 +244,12 @@ fun HomeScreen() {
             }
         }
 
-        if (showMusic && spotifyLib.recent.isNotEmpty()) {
+        // One "Recently played" shelf like Spotify's: what you played here, then your Spotify history.
+        val recentlyPlayed = (lib.recentTracks + spotifyLib.recent).distinctBy { it.id }.take(20)
+        if (showMusic && recentlyPlayed.isNotEmpty()) {
             item {
-                SectionHeader("Recently played")
-                TrackShelf(spotifyLib.recent.take(20), PlayContext("spotify-recent", "Recently played", "RECENTLY PLAYED"), playback.current?.id)
+                SectionHeader("Recently played", action = if (lib.recentTracks.isNotEmpty()) "Show all" else null, onAction = actions::openHistory)
+                TrackShelf(recentlyPlayed, PlayContext("recent", "Recently played", "RECENTLY PLAYED"), playback.current?.id)
             }
         }
         if (showMusic && spotifyLib.topTracks.size > 1) {
@@ -303,18 +318,13 @@ fun HomeScreen() {
             }
         }
 
-        if (showMusic && lib.recentTracks.isNotEmpty()) {
-            item {
-                SectionHeader("Recently played", action = "Show all", onAction = actions::openHistory)
-                TrackShelf(lib.recentTracks.take(15), PlayContext("recent", "Recently played", "RECENTLY PLAYED"), playback.current?.id)
-            }
-        }
 
-        when (val state = feed.state) {
-            is Load.Loading -> items(3) { SkeletonShelf() }
-            is Load.Failed -> item { ErrorState(state.message, feed.retry) }
-            is Load.Ready -> {
-                val data = state.data
+        // Audius' charts are one part of Home. If they're slow or down, everything else still
+        // shows and the charts slot in when they arrive; there's no error page in the middle.
+        if (feed.state is Load.Loading) items(3) { SkeletonShelf() }
+        run {
+            run {
+                val data = (feed.state as? Load.Ready)?.data ?: HomeFeed(emptyList(), emptyList(), emptyList(), emptyList())
                 if (showMusic) {
                     item {
                         SectionHeader("Your top mixes")
@@ -329,7 +339,7 @@ fun HomeScreen() {
                             }
                         }
                     }
-                    item {
+                    if (data.trending.isNotEmpty()) item {
                         SectionHeader("Trending now")
                         TrackShelf(data.trending, PlayContext("trending-week", "Trending this week", "TRENDING"), playback.current?.id)
                     }
@@ -380,11 +390,11 @@ fun HomeScreen() {
                     }
                 }
                 if (showMusic) {
-                    item {
+                    if (data.monthly.isNotEmpty()) item {
                         SectionHeader("Top of the month")
                         TrackShelf(data.monthly, PlayContext("trending-month", "Top of the month", "CHART"), playback.current?.id)
                     }
-                    item {
+                    if (data.allTime.isNotEmpty()) item {
                         SectionHeader("All-time greats")
                         TrackShelf(data.allTime, PlayContext("trending-all", "All-time greats", "CHART"), playback.current?.id)
                     }

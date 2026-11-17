@@ -130,11 +130,25 @@ fun ArtistScreen(requestedId: String) {
     val releasesLoad = rememberLoad("artist-releases", resolved) { if (resolved == null) awaitCancellation() else catalog.releases(resolved) }
     val relatedLoad = rememberLoad("artist-related", resolved) { if (resolved == null) awaitCancellation() else catalog.related(resolved) }
     // A dropped connection shouldn't leave a page with nothing on it: keep the skeleton up and
-    // quietly ask again until it answers.
+    // quietly ask again until it answers, waiting a little longer each time so a rate-limited
+    // Spotify gets room to recover instead of being asked every couple of seconds.
+    var tries by remember(requestedId) { mutableStateOf(0) }
     LaunchedEffect(load.state) {
         if (load.state is Load.Failed) {
-            delay(2_500)
+            delay((2_500L shl tries.coerceAtMost(4)).coerceAtMost(30_000L))
+            tries++
             load.retry()
+        }
+    }
+    // Spotify artist pages need a Spotify sign-in. Signed out, this artist's songs from every
+    // source are the next best thing, so go there rather than wait on a page that can't load.
+    val app = com.srakim.spitify.ui.LocalApp.current
+    LaunchedEffect(requestedId) {
+        if (com.srakim.spitify.data.SpotifyImport.isSpotifyArtist(requestedId) && !app.spotifyImport.hasToken) {
+            val name = catalog.spotify?.meta?.cached(requestedId)?.name
+            actions.back()
+            if (name != null) actions.searchFor(name)
+            else actions.toast("Sign in to Spotify in Settings → Apps and devices to open Spotify artist pages")
         }
     }
     val cachedArtist = remember(id) { catalog.spotify?.meta?.cached(id) }
@@ -144,6 +158,19 @@ fun ArtistScreen(requestedId: String) {
     val releases = allReleases.filter { it.label != SpotifyMeta.APPEARS_ON }
     val appearsOn = allReleases.filter { it.label == SpotifyMeta.APPEARS_ON }
     val related = (relatedLoad.state as? Load.Ready)?.data.orEmpty()
+    // Spotify answered with the artist but none of their songs or releases (it does that when
+    // it's rate limiting): keep asking quietly, a bit slower each time, until the page fills.
+    var emptyTries by remember(id) { mutableStateOf(0) }
+    val emptySpotifyPage = id.startsWith("spotify:") && load.state is Load.Ready && tracks.isEmpty() &&
+        releasesLoad.state is Load.Ready && allReleases.isEmpty()
+    LaunchedEffect(emptySpotifyPage, emptyTries) {
+        if (emptySpotifyPage && emptyTries < 5) {
+            delay(4_000L shl emptyTries)
+            emptyTries++
+            load.retry()
+            releasesLoad.retry()
+        }
+    }
     // Spotify fills the header with a photo of the artist, so the square portrait beats a wide banner.
     val heroImage = artist?.pictureLarge ?: artist?.cover
     val color by rememberArtworkColor(artist?.picture)
@@ -215,6 +242,7 @@ fun ArtistScreen(requestedId: String) {
                     }
                 }
 
+                if (emptySpotifyPage && emptyTries < 5) item { SkeletonTrackList(6) }
                 when (load.state) {
                     is Load.Loading, is Load.Failed -> item { SkeletonTrackList(6) }
                     is Load.Ready -> {

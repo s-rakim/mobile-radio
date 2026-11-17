@@ -95,6 +95,8 @@ data class Playlist(
     val saves: Int = 0,
     /** Release or creation year, for album headers. */
     val year: String? = null,
+    /** The source showed the playlist but wouldn't hand over its songs (Spotify does this for other people's playlists). */
+    val songsWithheld: Boolean = false,
 )
 
 @Serializable

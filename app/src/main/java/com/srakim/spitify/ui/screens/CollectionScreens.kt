@@ -70,6 +70,7 @@ import com.srakim.spitify.ui.components.LikedSongsArt
 import com.srakim.spitify.ui.components.MosaicArt
 import com.srakim.spitify.ui.components.SectionHeader
 import com.srakim.spitify.ui.components.SkeletonTrackList
+import kotlinx.coroutines.delay
 import com.srakim.spitify.ui.components.TrackRow
 import com.srakim.spitify.ui.components.WhiteButton
 import com.srakim.spitify.ui.components.formatLongDuration
@@ -123,8 +124,21 @@ fun PlaylistScreen(id: String) {
     // Albums end with more from the same artist, like Spotify's "More by".
     val moreBy = rememberLoad("moreBy", playlist?.ownerId, isAlbum) {
         val owner = playlist?.ownerId.orEmpty()
-        if (!isAlbum || owner.isBlank()) emptyList() else runCatching { api.artistAlbums(owner) }.getOrDefault(emptyList()).filter { it.id != id }
+        // Spotify albums get the artist's own Spotify releases; Audius ones their Audius albums.
+        if (!isAlbum || owner.isBlank()) emptyList()
+        else runCatching { catalog.releases(owner) }.getOrDefault(emptyList())
+            .filter { it.id != id && it.label != com.srakim.spitify.data.SpotifyMeta.APPEARS_ON }
     }
+    // A dropped connection gets a few quiet retries behind the skeleton before saying anything.
+    var tries by remember(id) { mutableIntStateOf(0) }
+    LaunchedEffect(load.state) {
+        if (load.state is Load.Failed && tries < 4) {
+            delay(2_000L shl tries)
+            tries++
+            load.retry()
+        }
+    }
+    val gaveUp = load.state is Load.Failed && tries >= 4
 
     LaunchedEffect(playlist?.id) {
         playlist?.let { library.recordVisit(RecentItem(RecentItem.Kind.PLAYLIST, it.id, it.name, "${it.label} • ${it.owner}", it.artwork)) }
@@ -133,7 +147,7 @@ fun PlaylistScreen(id: String) {
     val ctx = PlayContext("playlist:$id", playlist?.name ?: "Playlist", (playlist?.label ?: "Playlist").uppercase())
     CollectionScaffold(title = playlist?.name.orEmpty(), color = color, secondary = art.secondary, header = {
         when (val state = load.state) {
-            is Load.Failed -> ErrorState(state.message, load.retry)
+            is Load.Failed -> if (gaveUp) ErrorState(state.message, { tries = 0; load.retry() }) else SkeletonTrackList()
             else -> {
                 if (!isAlbum) {
                     FindInCollection(query, { query = it }, sortLabel = sort.label, onSort = { sorting = true })
@@ -180,6 +194,14 @@ fun PlaylistScreen(id: String) {
         }
     }) {
         if (load.state is Load.Loading) item { SkeletonTrackList() }
+        if (playlist?.songsWithheld == true && tracks.isEmpty()) {
+            item {
+                EmptyState(
+                    "Spotify won't share these songs",
+                    "Spotify shows apps like Spitify this playlist but not what's in it. That happens with playlists other people made. Save the songs into a playlist of your own in Spotify and it'll open here.",
+                )
+            }
+        }
         collectionTracks(
             shown, ctx, playback.current?.id, playback.isPlaying, likedIds,
             onPlay = { i -> player.play(tracks, tracks.indexOf(shown[i]).coerceAtLeast(0), ctx) },

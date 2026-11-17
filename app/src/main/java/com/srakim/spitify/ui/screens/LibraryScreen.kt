@@ -126,7 +126,7 @@ fun LibraryScreen() {
                 add(LibraryEntry("LOCAL:local", "Local Files", subtitle, RecentItem.Kind.PLAYLIST, "local", null, pinned = true, special = "local"))
             }
             if (catalog.server.enabled) {
-                add(LibraryEntry("SERVER:server", "Your server", "Navidrome / Subsonic", RecentItem.Kind.PLAYLIST, "server", null, pinned = true, special = "server"))
+                add(LibraryEntry("SERVER:server", "Your server", "Your own music", RecentItem.Kind.PLAYLIST, "server", null, pinned = true, special = "server"))
             }
             lib.folders.forEach { f ->
                 val inside = lib.playlists.filter { it.folderId == f.id }

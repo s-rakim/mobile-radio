@@ -80,15 +80,35 @@ class SpotifyMeta(private val spotify: SpotifyImport, private val client: OkHttp
 
     // ---------- Artist pages ----------
 
+    /**
+     * The artist screen asks for the page three times at once (songs, releases, "Works with").
+     * They share one load instead of each firing its own twenty-odd calls at Spotify, which is
+     * what tipped development-mode apps into rate limits and left pages empty.
+     */
+    private val loading = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ArtistPage>>()
+    private val loadScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
     suspend fun page(uri: String): ArtistPage {
         pages[uri]?.takeIf { System.currentTimeMillis() - it.loadedAt < PAGE_TTL_MS }?.let { return it }
+        val job = loading.computeIfAbsent(uri) { loadScope.async { loadPage(uri) } }
+        return try {
+            job.await()
+        } finally {
+            if (job.isCompleted) loading.remove(uri, job)
+        }
+    }
+
+    private suspend fun loadPage(uri: String): ArtistPage {
         val page = load(uri)
         if (page.artist == null && page.top.isEmpty() && page.releases.isEmpty()) {
             // Nothing came back at all, which means no connection rather than a closed door.
             // The screen tries again by itself.
             throw IOException("Spotify didn't answer")
         }
-        pages[uri] = page
+        // Only a complete page is kept for half an hour. One missing its songs or releases (a
+        // rate-limited moment, say) is shown, then asked for again on the next visit.
+        if (page.top.isNotEmpty() && page.releases.isNotEmpty()) pages[uri] = page
+        page.artist?.let { known[uri] = it }
         return page
     }
 
@@ -355,8 +375,9 @@ class SpotifyMeta(private val spotify: SpotifyImport, private val client: OkHttp
             val r = runCatching(block)
             r.getOrNull()?.let { return it }
             val m = r.exceptionOrNull()?.message.orEmpty()
-            // A closed endpoint answers the same every time; no point asking again.
-            if (m.contains("403") || m.contains("404") || m.contains("Sign in")) return null
+            // A closed endpoint answers the same every time, and a rate limit only gets worse
+            // with more calls: no point asking again straight away.
+            if (m.contains("403") || m.contains("404") || m.contains("Sign in") || m.contains("rate limiting")) return null
             if (attempt < 2) Thread.sleep(400L * (attempt + 1))
         }
         return null

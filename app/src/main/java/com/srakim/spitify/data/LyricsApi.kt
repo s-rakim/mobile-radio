@@ -79,8 +79,11 @@ class LyricsApi(private val client: OkHttpClient) {
         val lrclib = async(Dispatchers.IO) { withTimeoutOrNull(ONLINE_TIMEOUT_MS) { runCatching { lrclibText(q) }.getOrNull() }.orEmpty() }
         val inLyrics = lrclib.await().filter { it.line != null }
         val seen = HashSet<String>()
-        val merged = (inLyrics + genius.await() + lrclib.await().filter { it.line == null })
+        val qn = LyricText.norm(q)
+        val merged = (genius.await() + inLyrics + lrclib.await().filter { it.line == null })
             .filter { seen.add(LyricText.norm(it.title) + "|" + LyricText.norm(it.artist)) }
+            // Originals before remixes, sped-up edits and uploaders named after the song's words.
+            .sortedBy { m -> if (VERSION.containsMatchIn(m.title) || qn.contains(LyricText.norm(m.artist))) 1 else 0 }
             .take(MAX_ONLINE)
         // Fill in the matching line for the first few that don't have one yet.
         merged.mapIndexed { i, m ->
@@ -191,6 +194,7 @@ class LyricsApi(private val client: OkHttpClient) {
         const val MAX_ONLINE = 15
         const val BROWSER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
         val KARAOKE = Regex("karaoke|instrumental|originally performed", RegexOption.IGNORE_CASE)
+        val VERSION = Regex("remix|paused|sped up|slowed|cover|tiktok|mashup|\\bx\\b|edit\\)|version|\\blive\\b", RegexOption.IGNORE_CASE)
     }
 }
 
@@ -227,21 +231,25 @@ object LyricText {
         val qWords = q.split(' ').filter { it.length > 1 }.toSet()
         if (q.isEmpty()) return null
         val clean = lines.filter { it.isNotBlank() }
-        var best: Pair<String, Double>? = null
-        for (i in clean.indices) {
-            for (span in 1..2) {
-                if (i + span > clean.size) break
-                val text = clean.subList(i, i + span).joinToString(" ")
-                val n = norm(text)
-                val score = when {
-                    n.contains(q) -> 1.0
-                    qWords.size >= 3 -> {
-                        val have = n.split(' ').toSet()
-                        qWords.count { it in have }.toDouble() / qWords.size * 0.95
-                    }
-                    else -> 0.0
+        fun score(text: String): Double {
+            val n = norm(text)
+            return when {
+                n.contains(q) -> 1.0
+                qWords.size >= 3 -> {
+                    val have = n.split(' ').toSet()
+                    qWords.count { it in have }.toDouble() / qWords.size * 0.95
                 }
-                if (score > (best?.second ?: 0.0)) best = clean[i] to score
+                else -> 0.0
+            }
+        }
+        // Single lines first, so the line that holds the words is the one shown. Two lines
+        // together only count when the words run across a line break, and then both are shown.
+        var best: Pair<String, Double>? = null
+        clean.forEach { line -> score(line).let { if (it > (best?.second ?: 0.0)) best = line to it } }
+        if ((best?.second ?: 0.0) < 1.0) {
+            clean.zipWithNext { a, b -> "$a / $b" }.forEach { pair ->
+                // A pair has to beat the best single line clearly, or it's the same match.
+                score(pair.replace(" / ", " ")).let { if (it > (best?.second ?: 0.0) + 0.1) best = pair to it }
             }
         }
         return best?.takeIf { it.second >= 0.75 }

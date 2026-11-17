@@ -225,6 +225,41 @@ class SpotifyMeta(private val spotify: SpotifyImport, private val client: OkHttp
         found.firstOrNull { core(it.name) == wanted }
     }
 
+    // ---------- Lyric search ----------
+
+    /**
+     * Songs found by their lyrics, as Spotify knows them: the original artist and cover, and a
+     * Spotify id that plays (from your own server first). Lyric sites are full of karaoke and
+     * cover uploads, so a title match on Spotify, which ranks the real song first, sorts that
+     * out. Genius results already name the right artist, so those must match it.
+     */
+    suspend fun canonical(matches: List<LyricMatch>): List<LyricMatch> = coroutineScope {
+        if (!spotify.hasToken || matches.isEmpty()) return@coroutineScope matches
+        val wanted = matches.filter { it.track == null }.map { core(it.title) }.filter { it.isNotBlank() }.distinct().take(CANON_LOOKUPS)
+        val found = wanted.map { title ->
+            async(Dispatchers.IO) {
+                title to retry {
+                    spotify.api("$API/search?type=track&limit=10&q=" + Uri.encode("track:\"$title\"")).jsonObject["tracks"]
+                        ?.jsonObject?.get("items")?.jsonArray.orEmpty()
+                        .mapNotNull { (it as? JsonObject)?.let(spotify::toTrack) }
+                        .filter { core(it.title) == title }
+                }.orEmpty()
+            }
+        }.awaitAll().toMap()
+        val seen = HashSet<String>()
+        matches.mapNotNull { m ->
+            val options = if (m.track == null) found[core(m.title)].orEmpty() else emptyList()
+            val pick = if (m.source == "Genius") {
+                val artist = core(m.artist.split(",", "&", " feat", " ft.").first())
+                options.firstOrNull { core(it.artist).contains(artist) }
+            } else {
+                options.firstOrNull()
+            }
+            val out = if (pick != null) m.copy(title = pick.title, artist = pick.artist, artwork = pick.artwork, track = pick, source = "Spotify") else m
+            out.takeIf { seen.add(core(it.title) + "|" + core(it.artist)) }
+        }
+    }
+
     // ---------- Bio ----------
 
     /**
@@ -344,6 +379,7 @@ class SpotifyMeta(private val spotify: SpotifyImport, private val client: OkHttp
         private const val DISCOGRAPHY_PAGES = 6
         private const val TOP_SIZE = 10
         private const val MAX_COLLABORATORS = 10
+        private const val CANON_LOOKUPS = 6
         private const val USER_AGENT = "Spitify (https://github.com/s-rakim/mobile-radio)"
         private val MUSIC = Regex(
             "singer|rapper|musician|band|songwriter|record producer|\\bdj\\b|disc jockey|music group|duo|trio|composer|vocalist|boy band|girl group|hip hop|recording artist",

@@ -39,6 +39,8 @@ class ScreenTour {
 
     private fun shot(name: String, settle: Long = 3500) {
         Thread.sleep(settle)
+        // The emulator's launcher sometimes pops "isn't responding" over everything.
+        device.findObject(By.text("Wait"))?.click()
         device.waitForIdle(2000)
         device.takeScreenshot(File(out, "$name.png"))
     }
@@ -57,8 +59,21 @@ class ScreenTour {
 
     private fun step(block: () -> Unit) = runCatching(block).onFailure { it.printStackTrace() }
 
+    /** Taps a search filter, scrolling the row of filters along until it shows. */
+    private fun tapPill(text: String) {
+        repeat(4) {
+            device.findObject(By.text(text))?.let { it.click(); return }
+            val top = device.findObject(By.text("Top")) ?: device.findObject(By.text("Songs")) ?: return
+            val y = top.visibleBounds.centerY()
+            device.swipe(device.displayWidth * 4 / 5, y, device.displayWidth / 5, y, 20)
+            Thread.sleep(500)
+        }
+    }
+
     /** Finding songs by a line of their lyrics: from this phone's lyric index and online. */
     private fun lyricSearch() {
+        // Close the player left open by the steps before.
+        step { device.pressBack(); Thread.sleep(1200); device.findObject(By.text("Wait"))?.click() }
         // One song's lyrics fetched the normal way, which also puts them in the index.
         step {
             runBlocking { app.lyrics.find(com.srakim.spitify.data.Track("tour:diamonds", "Diamonds", "Rihanna", durationSec = 225)) }
@@ -75,19 +90,19 @@ class ScreenTour {
         step {
             Links.incoming.value = Links.Link.Search("shine bright like a diamond")
             shot("31-lyrics-in-top-results", 9000)
-            tap("Lyrics")
+            tapPill("Lyrics")
             shot("32-lyrics-tab", 5000)
         }
         step {
             Links.incoming.value = Links.Link.Search("we found love in a hopeless place")
             Thread.sleep(2000)
-            tap("Lyrics")
+            tapPill("Lyrics")
             shot("33-lyrics-online", 9000)
         }
         step {
             Links.incoming.value = Links.Link.Search("hip hop")
             Thread.sleep(2500)
-            tap("Genres & moods")
+            tapPill("Genres & moods")
             shot("34-genres-and-moods", 3000)
         }
     }
@@ -110,7 +125,7 @@ class ScreenTour {
         step {
             Links.incoming.value = Links.Link.Search("rihanna")
             shot("40-search-rihanna", 8000)
-            device.findObject(By.text("Artists"))?.click()
+            tapPill("Artists")
             Thread.sleep(2500)
             device.findObjects(By.text("Rihanna")).firstOrNull { it.visibleBounds.top > device.displayHeight / 6 }?.click()
             shot("41-rihanna-from-search", 9000)

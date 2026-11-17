@@ -225,8 +225,8 @@ private fun <T> interleave(vararg lists: List<T>): List<T> {
 }
 
 private enum class ResultFilter(val label: String) {
-    TOP("Top"), SONGS("Songs"), ARTISTS("Artists"), ALBUMS("Albums"), PLAYLISTS("Playlists"),
-    LYRICS("Lyrics"), GENRES("Genres & moods"), RADIO("Radio"),
+    TOP("Top"), SONGS("Songs"), LYRICS("Lyrics"), ARTISTS("Artists"), ALBUMS("Albums"), PLAYLISTS("Playlists"),
+    GENRES("Genres & moods"), RADIO("Radio"),
 }
 
 /** Spotify's search filters (artist:, album:, year: and friends) only mean something to Spotify. */
@@ -286,11 +286,14 @@ fun SearchInputScreen(initialQuery: String = "") {
     val wantLyrics = filter == ResultFilter.LYRICS || lyricWords >= 4
     val localLyrics = remember(plain, indexSize, wantLyrics) { if (wantLyrics) app.lyricIndex.search(plain) else emptyList() }
     val onlineLyricsLoad = rememberLoad("search-lyrics", plain, wantLyrics) { if (wantLyrics) app.lyrics.searchText(plain) else emptyList() }
-    val lyricMatches = run {
+    val foundByLyrics = run {
         val seen = HashSet<String>()
         (localLyrics + (onlineLyricsLoad.state as? Load.Ready)?.data.orEmpty())
             .filter { seen.add(com.srakim.spitify.data.LyricText.norm(it.title) + "|" + com.srakim.spitify.data.LyricText.norm(it.artist).substringBefore(" feat")) }
     }
+    // Signed in to Spotify: each match becomes the real song (original artist, cover, playable).
+    val canonLoad = rememberLoad("search-lyrics-spotify", foundByLyrics) { spotifyImport.meta.canonical(foundByLyrics) }
+    val lyricMatches = (canonLoad.state as? Load.Ready)?.data ?: foundByLyrics
     val lyricsBusy = wantLyrics && onlineLyricsLoad.state is Load.Loading
     val scope = rememberCoroutineScope()
     fun playLyricMatch(m: com.srakim.spitify.data.LyricMatch) {
@@ -753,7 +756,7 @@ private fun LyricRow(m: com.srakim.spitify.data.LyricMatch, modifier: Modifier =
         Column(Modifier.weight(1f)) {
             Text(m.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOf(m.artist, if (m.track != null) "In your library" else m.source).filter { it.isNotBlank() }.joinToString(" • "),
+                listOf(m.artist, if (m.source == "Your library") "In your library" else m.source).filter { it.isNotBlank() }.joinToString(" • "),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

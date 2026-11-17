@@ -39,6 +39,8 @@ class ScreenTour {
 
     private fun shot(name: String, settle: Long = 3500) {
         Thread.sleep(settle)
+        // The emulator's launcher sometimes pops "isn't responding" over everything.
+        device.findObject(By.text("Wait"))?.click()
         device.waitForIdle(2000)
         device.takeScreenshot(File(out, "$name.png"))
     }
@@ -56,6 +58,110 @@ class ScreenTour {
     }
 
     private fun step(block: () -> Unit) = runCatching(block).onFailure { it.printStackTrace() }
+
+    /** Taps a search filter, scrolling the row of filters along until it shows. */
+    private fun tapPill(text: String) {
+        repeat(4) {
+            device.findObject(By.text(text))?.let { it.click(); return }
+            val top = device.findObject(By.text("Top")) ?: device.findObject(By.text("Songs")) ?: return
+            val y = top.visibleBounds.centerY()
+            device.swipe(device.displayWidth * 4 / 5, y, device.displayWidth / 5, y, 20)
+            Thread.sleep(500)
+        }
+    }
+
+    /** Finding songs by a line of their lyrics: from this phone's lyric index and online. */
+    private fun lyricSearch() {
+
+        // One song's lyrics fetched the normal way, which also puts them in the index.
+        step {
+            runBlocking { app.lyrics.find(com.srakim.spitify.data.Track("tour:diamonds", "Diamonds", "Rihanna", durationSec = 225)) }
+            Thread.sleep(500)
+        }
+        step {
+            Links.incoming.value = Links.Link.Search("")
+            shot("30-search-suggestions", 5000)
+        }
+        step {
+            Links.incoming.value = Links.Link.Search("shine bright like a diamond")
+            shot("31-lyrics-in-top-results", 9000)
+            tapPill("Lyrics")
+            shot("32-lyrics-tab", 5000)
+        }
+        step {
+            Links.incoming.value = Links.Link.Search("we found love in a hopeless place")
+            Thread.sleep(2000)
+            tapPill("Lyrics")
+            shot("33-lyrics-online", 9000)
+        }
+        step {
+            Links.incoming.value = Links.Link.Search("hip hop")
+            Thread.sleep(2500)
+            tapPill("Genres & moods")
+            shot("34-genres-and-moods", 3000)
+        }
+    }
+
+    /**
+     * Artist pages and song details from real Spotify. CI passes the Spotify app's client id and
+     * secret; without them these steps are skipped and a marker file says so.
+     */
+    private fun spotifyPages() {
+        val args = InstrumentationRegistry.getArguments()
+        val id = args.getString("spotifyClientId").orEmpty()
+        val secret = args.getString("spotifyClientSecret").orEmpty()
+        val ok = id.isNotBlank() && secret.isNotBlank() &&
+            runCatching { app.spotifyImport.useAppToken(id, secret) }.onFailure { it.printStackTrace() }.isSuccess
+        if (!ok) {
+            File(out, "40-spotify-SKIPPED-no-client-secret.txt").writeText("Set the SPOTIFY_CLIENT_SECRET repo secret to tour Spotify pages.")
+            return
+        }
+        // The bug report: Rihanna from search came up blank.
+        step {
+            Links.incoming.value = Links.Link.Search("rihanna")
+            shot("40-search-rihanna", 8000)
+            tapPill("Artists")
+            Thread.sleep(2500)
+            device.findObjects(By.text("Rihanna")).firstOrNull { it.visibleBounds.top > device.displayHeight / 6 }?.click()
+            shot("41-rihanna-from-search", 9000)
+            scrollDown()
+            shot("42-rihanna-popular", 2500)
+            scrollDown()
+            shot("43-rihanna-discography", 2500)
+            scrollDown(); scrollDown()
+            shot("44-rihanna-appears-on-about", 2500)
+        }
+        listOf(
+            "drake" to "3TVXtAsR1Inumwj472S9r4",
+            "taylor-swift" to "06HL4z0CvFAxyc27GXpf02",
+            "burna-boy" to "3wcj11K77LjEY1PkEazffa",
+            "the-weeknd" to "1Xyo4u8uXC1ZmMpatF05PJ",
+        ).forEachIndexed { i, (name, artist) ->
+            step {
+                Links.incoming.value = Links.Link.Artist("spotify:artist:$artist")
+                shot("5$i-$name", 9000)
+                scrollDown()
+                shot("5$i-$name-scrolled", 2500)
+            }
+        }
+        // An artist known only by name (a song from your server without an artist id).
+        step {
+            Links.incoming.value = Links.Link.Artist("name:Sauti Sol")
+            shot("56-by-name-sauti-sol", 10000)
+        }
+        // Song details straight from Spotify.
+        step {
+            val song = runBlocking { app.spotifyImport.searchTracks("track:\"Diamonds\" artist:\"Rihanna\"") }.first()
+            Links.incoming.value = Links.Link.Credits(song)
+            shot("60-song-details-spotify", 6000)
+            device.pressBack()
+        }
+        // Spotify's own search filters.
+        step {
+            Links.incoming.value = Links.Link.Search("artist:\"Rihanna\" year:2016")
+            shot("61-search-artist-year-filter", 8000)
+        }
+    }
 
     @Test
     fun tour() {
@@ -164,6 +270,10 @@ class ScreenTour {
                     shot(if (playing != null) "14-spotify-song-played-by-spitify" else "14-spotify-song-NOT-PLAYED", 3000)
                 }
             }
+            instrumentation.runOnMainSync { if (app.player.state.value.isPlaying) app.player.togglePlayPause() }
+
+            lyricSearch()
+            spotifyPages()
         }
     }
 }

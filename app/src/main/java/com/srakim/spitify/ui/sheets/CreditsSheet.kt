@@ -15,6 +15,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.srakim.spitify.data.SpotifyMeta
 import com.srakim.spitify.data.TrackDetails
 import com.srakim.spitify.data.Track
 import com.srakim.spitify.ui.LocalActions
@@ -36,6 +37,11 @@ fun CreditsSheet(track: Track, onDismiss: () -> Unit) {
         if (track.isAudius) value = runCatching { api.trackDetails(track.id) }.getOrNull()
     }
     val d = details
+    // Signed in to Spotify: Spotify's own details for the song, also for songs from your server.
+    val spotifyImport = com.srakim.spitify.ui.LocalApp.current.spotifyImport
+    val sp by produceState<SpotifyMeta.SongInfo?>(null, track.id) {
+        value = runCatching { spotifyImport.meta.songInfo(track) }.getOrNull()
+    }
 
     SpitifySheet(onDismiss, scrollable = true) {
         Text(
@@ -54,28 +60,55 @@ fun CreditsSheet(track: Track, onDismiss: () -> Unit) {
             onDismiss()
             actions.openArtistOf(track)
         }
-        Credit("Performed by", listOf(track.artist), onClick = toArtist)
+        val s = sp
+        if (s != null && s.artists.isNotEmpty()) {
+            // Every credited artist on Spotify, each one opening their Spotify page.
+            s.artists.forEachIndexed { i, (name, uri) ->
+                Credit(if (i == 0) "Main artist" else "Featured artist", listOf(name), onClick = if (uri.isBlank()) null else fun() {
+                    onDismiss()
+                    actions.openArtist(uri)
+                })
+            }
+        } else {
+            Credit("Performed by", listOf(track.artist), onClick = toArtist)
+        }
         d?.credits?.forEach { (role, people) -> Credit(role, people) }
 
         HorizontalDivider(color = SpitifyColors.Divider, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
 
-        val album = track.album ?: d?.album
+        val album = s?.album ?: track.album ?: d?.album
         if (album != null) {
-            Credit("Album", listOf(album), onClick = {
-                onDismiss()
-                actions.openAlbumOf(track)
-            })
+            Credit(
+                when (s?.albumType) { "single" -> "Single"; "compilation" -> "Compilation"; else -> "Album" },
+                listOf(album),
+                onClick = {
+                    onDismiss()
+                    if (s?.albumUri != null) actions.openPlaylist(s.albumUri) else actions.openAlbumOf(track)
+                },
+            )
+        }
+        if (s != null) {
+            Fact("Released", s.released?.let(::prettyDate))
+            if (s.trackNumber > 0) {
+                val of = if (s.albumTracks > 0) " of ${s.albumTracks}" else ""
+                val disc = if (s.disc > 1) " · disc ${s.disc}" else ""
+                Fact("Track", "${s.trackNumber}$of$disc")
+            }
+            if (s.explicit) Fact("Content", "Explicit")
+            if (s.genres.isNotEmpty()) Fact("Artist genres", s.genres.joinToString(", ") { g -> g.replaceFirstChar { it.titlecase() } })
+            Fact("ISRC", s.isrc)
+            Fact("On Spotify", s.link)
         }
         Fact("Source", if (track.isAudius) "Audius" + d?.artistHandle?.let { " · @$it" }.orEmpty() else track.source)
         Fact("Genre", d?.genre ?: track.genre)
         Fact("Mood", d?.mood)
-        Fact("Released", d?.released)
+        if (s == null) Fact("Released", d?.released)
         if (track.durationSec > 0) Fact("Length", formatDuration(track.durationSec.toLong()))
         Fact("Tempo", d?.bpm?.let { "$it BPM" })
         Fact("Key", d?.key)
         if (d != null && d.plays > 0) Fact("Plays", formatCount(d.plays))
         if (d != null && d.likes > 0) Fact("Likes on Audius", formatCount(d.likes))
-        Fact("ISRC", d?.isrc)
+        if (s?.isrc == null) Fact("ISRC", d?.isrc)
         Fact("License", d?.license)
         if (d != null && d.tags.isNotEmpty()) Fact("Tags", d.tags.joinToString(", "))
 
@@ -99,6 +132,15 @@ fun CreditsSheet(track: Track, onDismiss: () -> Unit) {
         Spacer(Modifier.height(12.dp))
     }
 }
+
+/** "2016-01-28" → "28 January 2016"; Spotify sometimes only knows the year or month. */
+private fun prettyDate(date: String): String = runCatching {
+    when (date.length) {
+        10 -> java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy"))
+        7 -> java.time.YearMonth.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy"))
+        else -> date
+    }
+}.getOrDefault(date)
 
 @Composable
 private fun Credit(role: String, people: List<String>, onClick: (() -> Unit)? = null) {

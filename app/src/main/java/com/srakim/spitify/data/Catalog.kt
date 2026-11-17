@@ -140,8 +140,9 @@ class Catalog(
 
     suspend fun artist(id: String): Pair<Artist?, List<Track>> = coroutineScope {
         if (SpotifyImport.isSpotifyArtist(id)) {
-            val page = spotify?.artistPage(id) ?: return@coroutineScope null to emptyList()
-            return@coroutineScope page.first to page.second
+            val sp = spotify ?: return@coroutineScope null to emptyList()
+            val page = sp.meta.page(id)
+            return@coroutineScope page.artist to page.top
         }
         if (SubsonicApi.isServer(id)) return@coroutineScope server.artist(id)
         if (JamendoApi.isJamendo(id)) {
@@ -156,15 +157,42 @@ class Catalog(
 
     /** Albums and singles for the artist page's Discography. */
     suspend fun releases(id: String): List<Playlist> = when {
-        SpotifyImport.isSpotifyArtist(id) -> spotify?.artistPage(id)?.third.orEmpty()
+        SpotifyImport.isSpotifyArtist(id) -> spotify?.meta?.let { runCatching { it.page(id).releases }.getOrNull() }.orEmpty()
         SubsonicApi.isServer(id) || JamendoApi.isJamendo(id) -> emptyList()
         else -> runCatching { audius.artistAlbums(id) }.getOrDefault(emptyList())
     }
 
-    /** "Fans also like". Spotify closed this to new apps, so it's Audius only. */
+    /**
+     * "Fans also like". Spotify closed related artists to development-mode apps, so Spotify
+     * pages show the artists they've made songs with instead.
+     */
     suspend fun related(id: String): List<Artist> = when {
-        SpotifyImport.isSpotifyArtist(id) || SubsonicApi.isServer(id) || JamendoApi.isJamendo(id) -> emptyList()
+        SpotifyImport.isSpotifyArtist(id) -> spotify?.meta?.collaborators(id).orEmpty()
+        SubsonicApi.isServer(id) || JamendoApi.isJamendo(id) -> emptyList()
         else -> runCatching { audius.relatedArtists(id) }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Which artist page to show for [id]. Once you're signed in to Spotify, every artist page
+     * comes from Spotify: tapping an artist from your server, Audius or Jamendo opens the
+     * Spotify artist with the same name (their songs still play from your own sources first).
+     * `name:<artist>` ids are just a name, used when a song carries no artist id at all.
+     * Returns null only for a bare name nobody knows, so the caller can search instead.
+     */
+    suspend fun preferredArtistId(id: String): String? {
+        val byName = id.startsWith(NAME_PREFIX)
+        if (SpotifyImport.isSpotifyArtist(id)) return id
+        val sp = spotify?.takeIf { it.hasToken && !settings.current.offlineMode } ?: return if (byName) null else id
+        val name = if (byName) id.removePrefix(NAME_PREFIX) else withTimeoutOrNull(TWIN_TIMEOUT_MS) { runCatching { artistName(id) }.getOrNull() }
+        if (name.isNullOrBlank()) return if (byName) null else id
+        val twin = withTimeoutOrNull(TWIN_TIMEOUT_MS) { runCatching { sp.meta.findArtist(name) }.getOrNull() }
+        return twin?.id ?: if (byName) null else id
+    }
+
+    private suspend fun artistName(id: String): String? = when {
+        SubsonicApi.isServer(id) -> server.artist(id).first?.name
+        JamendoApi.isJamendo(id) -> jamendo.artist(id)?.name
+        else -> audius.artist(id)?.name
     }
 
     suspend fun playlist(id: String): Pair<Playlist?, List<Track>> = coroutineScope {
@@ -176,11 +204,13 @@ class Catalog(
         info.await() to tracks.await()
     }
 
-    private companion object {
-        const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
-        const val SERVER_MATCH_TIMEOUT_MS = 6_000L
-        const val OPEN_CATALOG_TIMEOUT_MS = 8_000L
-        const val RADIO_TIMEOUT_MS = 8_000L
-        const val DIRECT_TIMEOUT_MS = 4_000L
+    companion object {
+        const val NAME_PREFIX = "name:"
+        private const val TWIN_TIMEOUT_MS = 5_000L
+        private const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
+        private const val SERVER_MATCH_TIMEOUT_MS = 6_000L
+        private const val OPEN_CATALOG_TIMEOUT_MS = 8_000L
+        private const val RADIO_TIMEOUT_MS = 8_000L
+        private const val DIRECT_TIMEOUT_MS = 4_000L
     }
 }

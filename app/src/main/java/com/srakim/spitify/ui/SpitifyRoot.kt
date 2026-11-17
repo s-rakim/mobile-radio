@@ -240,6 +240,13 @@ fun SpitifyRoot(app: SpitifyApp) {
             is Links.Link.Playlist -> actions.openPlaylist(l.id)
             is Links.Link.Artist -> actions.openArtist(l.id)
             Links.Link.Player -> if (app.player.state.value.current != null) playerOpen = true
+            is Links.Link.Search -> if (l.query.isBlank()) {
+                playerOpen = false
+                actions.openSearchInput()
+            } else {
+                actions.searchFor(l.query)
+            }
+            is Links.Link.Credits -> creditsFor = l.track
             is Links.Link.SpotifyAuth -> app.spotifyImport.completeSignIn(l.code, l.state, l.error)
         }
         }

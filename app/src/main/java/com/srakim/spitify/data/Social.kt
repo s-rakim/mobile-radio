@@ -146,6 +146,8 @@ object Links {
         data class Playlist(val id: String) : Link
         data class Artist(val id: String) : Link
         data object Player : Link
+        data class Search(val query: String) : Link
+        data class Credits(val track: Track) : Link
     }
 
     val incoming = MutableStateFlow<Link?>(null)
@@ -159,6 +161,7 @@ object Links {
             "playlist", "album" -> uri.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Link.Playlist(it) }
             "artist" -> uri.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Link.Artist(it) }
             "player" -> Link.Player
+            "search" -> uri.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Link.Search(it) }
             else -> null
         }
     }

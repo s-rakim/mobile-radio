@@ -65,6 +65,7 @@ class ScreenTour {
      */
     private fun ensureApp() {
         val context = instrumentation.targetContext
+        device.findObject(By.text("Wait"))?.click()
         if (device.currentPackageName == context.packageName) return
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         context.startActivity(launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -179,7 +180,9 @@ class ScreenTour {
             shot("70-chat-above-mini-player", 5000)
         }
         step {
-            device.findObject(By.text("Message"))?.let { it.click(); Thread.sleep(800); it.text = "Sending you one back" }
+            device.findObject(By.text("Message"))?.click()
+            Thread.sleep(1200)
+            device.findObject(By.clazz("android.widget.EditText"))?.text = "Sending you one back"
             shot("71-chat-keyboard-open", 2500)
             device.pressBack() // keyboard down
             Thread.sleep(800)
@@ -201,12 +204,13 @@ class ScreenTour {
         }
         // The friend's Spotify song plays when tapped.
         step {
-            song?.let { tap(it.title) }
+            // The friend's card is the one with their note on it.
+            tap("this one")
             var playing: String? = null
             repeat(30) {
                 if (playing == null) {
                     Thread.sleep(500)
-                    playing = app.player.state.value.current?.takeIf { it.id == song?.id }?.title
+                    playing = app.player.state.value.current?.takeIf { it.id == song?.id && app.player.state.value.isPlaying }?.title
                 }
             }
             report.appendLine("received song plays: ${playing != null}")

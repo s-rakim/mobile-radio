@@ -336,14 +336,14 @@ fun SpitifyRoot(app: SpitifyApp) {
                             .background(
                                 Brush.verticalGradient(
                                     0f to Color.Transparent,
-                                    0.22f to SpitifyColors.Base.copy(alpha = 0.55f),
-                                    0.5f to SpitifyColors.Base.copy(alpha = 0.88f),
-                                    1f to SpitifyColors.Base.copy(alpha = 0.97f),
+                                    0.3f to SpitifyColors.Base.copy(alpha = 0.78f),
+                                    0.5f to SpitifyColors.Base.copy(alpha = 0.93f),
+                                    1f to SpitifyColors.Base.copy(alpha = 0.98f),
                                 ),
                             ),
                     ) {
                         Column {
-                            if (!wide) Spacer(Modifier.height(28.dp))
+                            if (!wide) Spacer(Modifier.height(40.dp))
                             val jamHost = nearbyJams.firstOrNull { it !in hiddenJams }
                             AnimatedVisibility(
                                 visible = jamHost != null && !hostingJam && playback.context?.id != "jam:$jamHost",

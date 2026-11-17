@@ -92,7 +92,8 @@ fun LikedSongsArt(modifier: Modifier = Modifier, shape: Shape = RoundedCornerSha
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Brush.linearGradient(listOf(SpitifyColors.Accent, lerp(SpitifyColors.Accent, Color(0xFF2A0F3A), 0.55f), Color(0xFF1A0E24)))),
+            // Indigo into pale mint, corner to corner: the Liked Songs look people know at a glance.
+            .background(Brush.linearGradient(listOf(LikedIndigo, Color(0xFF8E8EE5), Color(0xFFC4EFD9)))),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -103,6 +104,9 @@ fun LikedSongsArt(modifier: Modifier = Modifier, shape: Shape = RoundedCornerSha
         )
     }
 }
+
+/** Deep indigo behind Liked Songs, also used for its page header. */
+val LikedIndigo = Color(0xFF450AF5)
 
 /** Cover for a playlist you made: one image, or a 2x2 grid once there are four songs. */
 @Composable

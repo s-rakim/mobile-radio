@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -41,6 +42,7 @@ class DownloadStore(
     private val context: Context,
     private val client: OkHttpClient,
     private val settings: SettingsStore,
+    private val copies: ServerCopies,
 ) {
     private val dir = File(context.filesDir, "downloads").apply { mkdirs() }
     private val index = File(dir, "index.json")
@@ -56,6 +58,22 @@ class DownloadStore(
     fun fileFor(trackId: String): File? = File(dir, fileName(trackId)).takeIf { it.exists() && it.length() > 0 }
 
     /** Queues the songs that aren't saved yet. Returns false if blocked by the Wi-Fi only setting. */
+    /**
+     * Saves a song that's playing off your server, so it plays offline from then on. Quietly does
+     * nothing when that's turned off, on mobile data with Wi-Fi only downloads, or when your
+     * server doesn't have the song.
+     */
+    fun saveFromServer(track: Track) {
+        val s = settings.current
+        if (!s.saveFromServer || !s.offlineAccess || !copies.enabled) return
+        if (!track.canDownload || _state.value.has(track.id) || _state.value.isDownloading(track.id)) return
+        if (isOnCellular() && !s.downloadOnCellular) return
+        io.launch {
+            val onServer = SubsonicApi.isServer(track.id) || (s.alwaysFromServer && copies.find(track) != null)
+            if (onServer) download(listOf(track))
+        }
+    }
+
     fun download(tracks: List<Track>): Boolean {
         if (isOnCellular() && !settings.current.downloadOnCellular) return false
         val todo = tracks.filter { it.canDownload && !_state.value.has(it.id) && !_state.value.isDownloading(it.id) }
@@ -106,8 +124,10 @@ class DownloadStore(
 
     fun bytesUsed(): Long = dir.listFiles()?.filter { it.extension == "mp3" }?.sumOf { it.length() } ?: 0L
 
-    private fun fetch(track: Track) {
-        val request = Request.Builder().url(SpitifyServerApi.resolve(track.streamUrl) ?: AudiusApi.streamUrl(track.id)).build()
+    /** Downloads come off your server when it has the song, else from where the song came from. */
+    private suspend fun fetch(track: Track) {
+        val source = if (settings.current.alwaysFromServer) withTimeoutOrNull(10_000) { copies.find(track) } ?: track else track
+        val request = Request.Builder().url(SpitifyServerApi.resolve(source.streamUrl) ?: AudiusApi.streamUrl(track.id)).build()
         val tmp = File(dir, fileName(track.id) + ".part")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")

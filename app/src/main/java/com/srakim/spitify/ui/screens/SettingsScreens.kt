@@ -744,6 +744,20 @@ private fun SettingsSectionPage(page: SettingsSection) {
                     item {
                         ToggleRow("Use your server", "Include it in Search, Home and Your Library.", settings.subsonicEnabled) { v -> set { it.copy(subsonicEnabled = v) } }
                     }
+                    item {
+                        ToggleRow(
+                            "Always play from your server",
+                            "Spotify songs and songs from Audius and the rest play your server's copy of the exact song. Spotify songs it doesn't have are greyed out.",
+                            settings.alwaysFromServer,
+                        ) { v -> set { it.copy(alwaysFromServer = v) } }
+                    }
+                    item {
+                        ToggleRow(
+                            "Save songs from your server",
+                            "Songs that play from your server are downloaded too, so they play offline. Follows the Wi-Fi only setting.",
+                            settings.saveFromServer,
+                        ) { v -> set { it.copy(saveFromServer = v) } }
+                    }
                 }
                 item {
                     ToggleRow(

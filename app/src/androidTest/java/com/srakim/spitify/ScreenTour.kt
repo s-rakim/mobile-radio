@@ -72,20 +72,15 @@ class ScreenTour {
 
     /** Finding songs by a line of their lyrics: from this phone's lyric index and online. */
     private fun lyricSearch() {
-        // Close the player left open by the steps before.
-        step { device.pressBack(); Thread.sleep(1200); device.findObject(By.text("Wait"))?.click() }
+
         // One song's lyrics fetched the normal way, which also puts them in the index.
         step {
             runBlocking { app.lyrics.find(com.srakim.spitify.data.Track("tour:diamonds", "Diamonds", "Rihanna", durationSec = 225)) }
             Thread.sleep(500)
         }
         step {
-            tap("Search")
-            Thread.sleep(1200)
-            tap("What do you want to listen to?")
-            shot("30-search-suggestions", 4000)
-            device.pressBack()
-            device.pressBack()
+            Links.incoming.value = Links.Link.Search("")
+            shot("30-search-suggestions", 5000)
         }
         step {
             Links.incoming.value = Links.Link.Search("shine bright like a diamond")

@@ -57,7 +57,20 @@ class ScreenTour {
         device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 30)
     }
 
-    private fun step(block: () -> Unit) = runCatching(block).onFailure { it.printStackTrace() }
+    private fun step(block: () -> Unit) = runCatching { ensureApp(); block() }.onFailure { it.printStackTrace() }
+
+    /**
+     * Brings the app back if a missed tap let the Back presses walk out of it, so one slow frame
+     * doesn't leave the rest of the tour photographing the launcher.
+     */
+    private fun ensureApp() {
+        val context = instrumentation.targetContext
+        if (device.currentPackageName == context.packageName) return
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        context.startActivity(launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), 10_000)
+        Thread.sleep(2500)
+    }
 
     /** Taps a search filter, scrolling the row of filters along until it shows. */
     private fun tapPill(text: String) {

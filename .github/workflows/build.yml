@@ -139,7 +139,7 @@ jobs:
       - name: Spotify for the tour
         env:
           ID: ${{ secrets.SPOTIFY_CLIENT_ID || vars.SPOTIFY_CLIENT_ID || 'e8b9ce6fd41c44acb05eb5ab44f149f0' }}
-          SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET || vars.SPOTIFY_CLIENT_SECRET }}
         run: |
           if [ -n "$SECRET" ]; then
             echo "SPOTIFY_TOUR_ARGS=-e spotifyClientId $ID -e spotifyClientSecret $SECRET" >> "$GITHUB_ENV"

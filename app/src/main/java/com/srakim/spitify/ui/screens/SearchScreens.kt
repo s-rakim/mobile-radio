@@ -1,5 +1,11 @@
 package com.srakim.spitify.ui.screens
 
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+
+import androidx.compose.foundation.layout.statusBars
+
+import androidx.compose.foundation.layout.WindowInsets
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -99,6 +105,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun SearchScreen() {
     val actions = LocalActions.current
+    Box(Modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(gridColumns(LocalContentWidth.current, phone = 2, minCell = 200.dp)),
         modifier = Modifier.fillMaxSize().background(SpitifyColors.Background),
@@ -151,6 +158,9 @@ fun SearchScreen() {
             }
         }
     }
+    // Tiles scroll away under a solid strip, never under the clock and battery.
+    Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(SpitifyColors.Background))
+    }
 }
 
 @Composable
@@ -190,18 +200,22 @@ private fun GenreTile(name: String, color: Color, onClick: () -> Unit) {
 private fun DiscoverCard(name: String, color: Color, onClick: () -> Unit) {
     val api = LocalApi.current
     val cover = rememberLoad("discover-cover", name) {
-        api.trendingTracks(genre = name, limit = 3).getOrNull(1)?.let { it.artworkLarge ?: it.artwork }
+        val top = api.trendingTracks(genre = name, limit = 3)
+        (top.getOrNull(1) ?: top.firstOrNull())?.let { it.artworkLarge ?: it.artwork }
     }
+    val url = (cover.state as? Load.Ready)?.data
     Box(
         Modifier
-            .width(118.dp)
-            .height(196.dp)
+            .width(132.dp)
+            .height(220.dp)
             .springClick(pressed = 0.95f, onClick = onClick)
             .clip(RoundedCornerShape(8.dp))
             .background(color),
     ) {
-        Artwork((cover.state as? Load.Ready)?.data, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
+        // No grey placeholder: until the cover arrives the card is the genre's own colour.
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.12f), lerp(color, Color.Black, 0.45f)))))
+        if (url != null) Artwork(url, Modifier.fillMaxSize(), RoundedCornerShape(0.dp), placeholder = false)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
         Text(
             "#" + name.lowercase().replace("/", " ").replace("-", "").split(" ").first(),
             style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),

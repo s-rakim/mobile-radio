@@ -450,7 +450,9 @@ fun MixCover(genre: String, color: Color, modifier: Modifier) {
             .background(lerp(color, Color.Black, 0.2f)),
     ) {
         val big = maxWidth > 100.dp
-        Artwork((cover.state as? Load.Ready)?.data, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
+        // Until the photo loads (or if there is none) the cover is the mix colour, never a grey box.
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.1f), lerp(color, Color.Black, 0.5f)))))
+        (cover.state as? Load.Ready)?.data?.let { Artwork(it, Modifier.fillMaxSize(), RoundedCornerShape(0.dp), placeholder = false) }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to lerp(color, Color.Black, 0.25f))))
         Box(
             Modifier
@@ -537,7 +539,7 @@ private fun DjCard(playingDj: Boolean) {
             .padding(start = 16.dp, end = 16.dp, top = 20.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Brush.horizontalGradient(listOf(SpitifyColors.AccentDeep, SpitifyColors.Elevated)))
+            .background(Color.White.copy(alpha = 0.08f))
             .clickable {
                 if (playingDj) actions.openPlayer() else {
                     app.dj.play()
@@ -547,8 +549,19 @@ private fun DjCard(playingDj: Boolean) {
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // A round cool-blue disc stands in for the DJ, like a host's avatar, instead of a green slab.
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(Color(0xFF1E3264), Color(0xFF27856A)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("DJ", style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold))
+        }
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text("DJ", style = MaterialTheme.typography.titleLarge)
+            Text("DJ", style = MaterialTheme.typography.titleMedium)
             Text(
                 when {
                     dj.busy -> "Digging for the next few songs…"
@@ -560,7 +573,7 @@ private fun DjCard(playingDj: Boolean) {
             )
         }
         TextButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Dj) }) {
-            Text("Request", color = SpitifyColors.Accent)
+            Text("Request", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.TextPrimary)
         }
     }
 }

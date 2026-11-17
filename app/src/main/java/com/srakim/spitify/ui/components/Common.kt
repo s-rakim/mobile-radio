@@ -14,7 +14,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -39,6 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -94,7 +94,7 @@ fun TrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick, onLongClick = onMore)
+            .combinedClickable(interactionSource = source, indication = null, onClick = onClick, onLongClick = onMore)
             .pressScale(source, pressed = 0.985f)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -119,18 +119,19 @@ fun TrackRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
                 color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (liked) {
+                    // Saved songs carry the small green tick, same as the save button.
                     Icon(
-                        Icons.Rounded.Favorite,
+                        Icons.Rounded.CheckCircle,
                         contentDescription = "Liked",
                         tint = SpitifyColors.Accent,
-                        modifier = Modifier.size(13.dp),
+                        modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                 }

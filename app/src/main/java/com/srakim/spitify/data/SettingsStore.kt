@@ -125,8 +125,13 @@ data class AppSettings(
     val spotifyClientId: String = "",
     /** Spotify songs play inside the Spotify app when it's connected and the account has Premium. */
     val playThroughSpotify: Boolean = true,
-    /** The looping visual behind the player. */
-    val canvas: Boolean = true,
+    /**
+     * The looping visual behind the player. Off by default: Spotify only shows a Canvas when the
+     * artist made one, every other song gets the square cover on a colour wash. Stored under a new
+     * key so phones that saved the old default pick up the new one.
+     */
+    @kotlinx.serialization.SerialName("canvasLoop")
+    val canvas: Boolean = false,
 )
 
 /** Playback and app preferences, kept in SharedPreferences as one JSON blob. */

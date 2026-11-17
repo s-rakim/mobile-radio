@@ -1,6 +1,12 @@
 package com.srakim.spitify.ui.theme
 
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -152,6 +158,7 @@ val SpitifyTypography = Typography(
     labelSmall = base.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.08.em),
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpitifyTheme(content: @Composable () -> Unit) {
     val palette = SpitifyColors.palette
@@ -180,5 +187,16 @@ fun SpitifyTheme(content: @Composable () -> Unit) {
             inverseOnSurface = SpitifyColors.OnToast,
         )
     }
-    MaterialTheme(colorScheme = scheme, typography = SpitifyTypography, content = content)
+    MaterialTheme(colorScheme = scheme, typography = SpitifyTypography) {
+        // Rows and cards dim under your finger instead of rippling, and the ripple that icon
+        // buttons still use is a faint glow rather than Material's grey wash.
+        CompositionLocalProvider(
+            LocalIndication provides PressDim,
+            LocalRippleConfiguration provides RippleConfiguration(
+                color = Color.White,
+                rippleAlpha = RippleAlpha(draggedAlpha = 0.04f, focusedAlpha = 0.04f, hoveredAlpha = 0.03f, pressedAlpha = 0.08f),
+            ),
+            content = content,
+        )
+    }
 }

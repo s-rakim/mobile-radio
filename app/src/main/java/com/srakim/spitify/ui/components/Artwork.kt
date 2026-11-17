@@ -47,19 +47,23 @@ fun Artwork(
     shape: Shape = RoundedCornerShape(4),
     fallback: ImageVector = Icons.Rounded.MusicNote,
     contentDescription: String? = null,
+    /** False when the caller paints its own colour underneath and doesn't want the grey note box. */
+    placeholder: Boolean = true,
 ) {
     val dataSaver = LocalDataSaver.current
     val source = if (dataSaver) url?.replace("1000x1000", "150x150")?.replace("480x480", "150x150") else url
     Box(
-        modifier = modifier.clip(shape).background(SpitifyColors.Highlight),
+        modifier = modifier.clip(shape).then(if (placeholder) Modifier.background(SpitifyColors.Highlight) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = fallback,
-            contentDescription = null,
-            tint = SpitifyColors.TextMuted,
-            modifier = Modifier.fillMaxSize(0.4f),
-        )
+        if (placeholder) {
+            Icon(
+                imageVector = fallback,
+                contentDescription = null,
+                tint = SpitifyColors.TextMuted,
+                modifier = Modifier.fillMaxSize(0.4f),
+            )
+        }
         if (!source.isNullOrBlank()) {
             val context = LocalContext.current
             val request = remember(source) {
@@ -92,7 +96,8 @@ fun LikedSongsArt(modifier: Modifier = Modifier, shape: Shape = RoundedCornerSha
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Brush.linearGradient(listOf(SpitifyColors.Accent, lerp(SpitifyColors.Accent, Color(0xFF2A0F3A), 0.55f), Color(0xFF1A0E24)))),
+            // Indigo into pale mint, corner to corner: the Liked Songs look people know at a glance.
+            .background(Brush.linearGradient(listOf(LikedIndigo, Color(0xFF8E8EE5), Color(0xFFC4EFD9)))),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -103,6 +108,9 @@ fun LikedSongsArt(modifier: Modifier = Modifier, shape: Shape = RoundedCornerSha
         )
     }
 }
+
+/** Deep indigo behind Liked Songs, also used for its page header. */
+val LikedIndigo = Color(0xFF450AF5)
 
 /** Cover for a playlist you made: one image, or a 2x2 grid once there are four songs. */
 @Composable

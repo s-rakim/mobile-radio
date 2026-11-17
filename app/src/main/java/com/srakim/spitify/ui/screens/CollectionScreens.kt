@@ -247,7 +247,7 @@ fun LikedSongsScreen() {
     val shown = remember(tracks, query, sort) { tracks.filterAndSort(query, sort) }
     if (sorting) SortSheet(sort, { sort = it }, { sorting = false })
 
-    CollectionScaffold(title = "Liked Songs", color = SpitifyColors.AccentDeep, header = {
+    CollectionScaffold(title = "Liked Songs", color = androidx.compose.ui.graphics.lerp(com.srakim.spitify.ui.components.LikedIndigo, Color.Black, 0.25f), header = {
         FindInCollection(query, { query = it }, sort.label, { sorting = true }, hint = "Find in Liked Songs")
         CoverBlock { m -> LikedSongsArt(m) }
         CollectionHeaderText("Liked Songs", meta = if (tracks.size == 1) "1 song" else "${tracks.size} songs")

@@ -32,7 +32,7 @@ data class Track(
     val hls: Boolean = false,
     /** How many times it's been played, when the source counts (Audius does). */
     val playCount: Int = 0,
-    /** The recording's ISRC, when the source gives it (Spotify does, Navidrome does from its tags). */
+    /** The recording's ISRC, when the source gives it (Spotify does, and servers that read it from the file tags). */
     val isrc: String? = null,
 ) {
     val source: String

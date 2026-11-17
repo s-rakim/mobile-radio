@@ -20,7 +20,7 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Finds the copy of a song on your own server (Navidrome or any Subsonic server), so the player
+ * Finds the copy of a song on your own server (the one under Settings → Music sources → Your server), so the player
  * and downloads take it from there instead of Spotify, Audius or the open catalogues. Only the
  * exact recording counts (see [SongMatch.exact]); a song the server doesn't have stays missing
  * rather than being swapped for something close.

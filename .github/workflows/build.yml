@@ -18,7 +18,8 @@ jobs:
     timeout-minutes: 40
     env:
       VERSION_CODE: ${{ github.run_number }}
-      SPITIFY_SERVER_URL: ${{ vars.SPITIFY_SERVER_URL }}
+      # Either a variable or a secret works.
+      SPITIFY_SERVER_URL: ${{ vars.SPITIFY_SERVER_URL || secrets.SPITIFY_SERVER_URL }}
       # Kept as a secret so it's masked in logs. The old variable still works as a fallback.
       SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID || vars.SPOTIFY_CLIENT_ID }}
       VERSION_NAME: 1.0.${{ github.run_number }}

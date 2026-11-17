@@ -539,7 +539,7 @@ private fun DjCard(playingDj: Boolean) {
             .padding(start = 16.dp, end = 16.dp, top = 20.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Brush.horizontalGradient(listOf(SpitifyColors.AccentDeep, SpitifyColors.Elevated)))
+            .background(Color.White.copy(alpha = 0.08f))
             .clickable {
                 if (playingDj) actions.openPlayer() else {
                     app.dj.play()
@@ -549,8 +549,19 @@ private fun DjCard(playingDj: Boolean) {
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // A round cool-blue disc stands in for the DJ, like a host's avatar, instead of a green slab.
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(Color(0xFF1E3264), Color(0xFF27856A)))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("DJ", style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold))
+        }
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text("DJ", style = MaterialTheme.typography.titleLarge)
+            Text("DJ", style = MaterialTheme.typography.titleMedium)
             Text(
                 when {
                     dj.busy -> "Digging for the next few songs…"
@@ -562,7 +573,7 @@ private fun DjCard(playingDj: Boolean) {
             )
         }
         TextButton(onClick = { actions.showSheet(com.srakim.spitify.ui.AppSheet.Dj) }) {
-            Text("Request", color = SpitifyColors.Accent)
+            Text("Request", style = MaterialTheme.typography.labelLarge, color = SpitifyColors.TextPrimary)
         }
     }
 }

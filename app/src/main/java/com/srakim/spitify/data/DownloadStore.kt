@@ -74,9 +74,19 @@ class DownloadStore(
         }
     }
 
+    /**
+     * A Spotify song with no audio of its own can only be saved from your server, so without
+     * one set up it's left out rather than queued to fail.
+     */
+    private fun saveable(t: Track): Boolean =
+        t.canDownload && !(SpotifyImport.isSpotify(t.id) && t.streamUrl == null && !copies.enabled)
+
+    /** How many of [tracks] a download would actually save. */
+    fun countSaveable(tracks: List<Track>): Int = tracks.count { saveable(it) && !_state.value.has(it.id) }
+
     fun download(tracks: List<Track>): Boolean {
         if (isOnCellular() && !settings.current.downloadOnCellular) return false
-        val todo = tracks.filter { it.canDownload && !_state.value.has(it.id) && !_state.value.isDownloading(it.id) }
+        val todo = tracks.filter { saveable(it) && !_state.value.has(it.id) && !_state.value.isDownloading(it.id) }
         if (todo.isEmpty()) return true
         _state.update { it.copy(inProgress = it.inProgress + todo.map { t -> t.id }) }
         todo.forEach { track ->
@@ -126,8 +136,11 @@ class DownloadStore(
 
     /** Downloads come off your server when it has the song, else from where the song came from. */
     private suspend fun fetch(track: Track) {
-        val source = if (settings.current.alwaysFromServer) withTimeoutOrNull(10_000) { copies.find(track) } ?: track else track
-        val request = Request.Builder().url(SpitifyServerApi.resolve(source.streamUrl) ?: AudiusApi.streamUrl(track.id)).build()
+        val spotifySong = SpotifyImport.isSpotify(track.id)
+        val source = if (settings.current.alwaysFromServer || spotifySong) withTimeoutOrNull(10_000) { copies.find(track) } ?: track else track
+        val url = SpitifyServerApi.resolve(source.streamUrl)
+            ?: if (spotifySong) throw IOException("${track.title} isn't on your server") else AudiusApi.streamUrl(track.id)
+        val request = Request.Builder().url(url).build()
         val tmp = File(dir, fileName(track.id) + ".part")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")

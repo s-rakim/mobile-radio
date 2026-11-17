@@ -72,9 +72,14 @@ data class Track(
     /** Plain Audius songs, the only ones another phone can look up by id. */
     val isAudius: Boolean get() = source == "Audius"
 
-    /** Songs already on the phone don't need saving. */
-    /** SoundCloud's terms don't allow saving its streams. */
-    val canDownload: Boolean get() = !isLocal && !isRadio && !hls && !id.startsWith(SoundCloudApi.ID_PREFIX) && !SpotifyImport.isSpotify(id)
+    /**
+     * Songs already on the phone don't need saving, and SoundCloud's terms don't allow saving
+     * its streams. Spotify songs can be saved: the file comes from your server's copy (or the
+     * exact copy that was found elsewhere), never from Spotify.
+     */
+    val canDownload: Boolean
+        get() = !isLocal && !isRadio && !hls && !id.startsWith(SoundCloudApi.ID_PREFIX) &&
+            streamUrl?.startsWith(SoundCloudApi.SCHEME) != true
 }
 
 @Serializable

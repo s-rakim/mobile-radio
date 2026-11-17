@@ -329,9 +329,12 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                             if (track.source != "Audius") {
                                 // Songs from your phone or your server say so, so they never get mistaken for the catalogue.
                                 val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                                val link = track.link
+                                // A Spotify song playing off your server says where the sound comes from.
+                                val fromServer = track.origin == com.srakim.spitify.playback.SERVER_ORIGIN
+                                val link = track.link.takeUnless { fromServer }
                                 Text(
                                     when {
+                                        fromServer -> "From your server"
                                         link != null -> "On ${track.source} ↗"
                                         track.isLocal -> "From this device"
                                         else -> "From your server"

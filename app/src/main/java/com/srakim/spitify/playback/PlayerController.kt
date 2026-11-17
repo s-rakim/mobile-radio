@@ -125,6 +125,9 @@ class PlayerController(
     /** Hands Spotify songs to the Spotify app. Set by the app at start-up. */
     var spotify: SpotifyBridge? = null
 
+    /** Songs like a Spotify song, for autoplay. Set by the app at start-up. */
+    var similarTo: (suspend (Track) -> List<Track>)? = null
+
     /** True while the Spotify app is doing the playing and this class only mirrors it. */
     private var remoteMode = false
     private var remoteQueue: List<Track> = emptyList()
@@ -250,13 +253,31 @@ class PlayerController(
         }
         standInJob?.cancel()
         leaveRemote()
-        if (tracks.any { SpotifyImport.isSpotify(it.id) }) {
+        if (tracks.any(::needsStandIn)) {
             // Your songs mixed with Spotify ones (Liked Songs, say): the Spotify ones get stand-ins.
             playStandIns(tracks, startIndex.coerceIn(tracks.indices), from, shuffle)
             return
         }
         startLocal(tracks, startIndex, from, shuffle)
     }
+
+    /**
+     * A Spotify song that can't go straight into Spitify's player yet: nothing saved on the
+     * phone, no copy known on your server, and no audio address of its own.
+     */
+    private fun needsStandIn(t: Track): Boolean {
+        if (!SpotifyImport.isSpotify(t.id) || downloads.fileFor(t.id) != null) return false
+        // With your server in charge only its copies count, whatever the song carried before.
+        if (serverFirst()) return copies.known(t) == null && t.origin != SERVER_ORIGIN
+        return t.streamUrl == null
+    }
+
+    /**
+     * The Spotify song as it should look while it plays: Spotify's id, title, artists, album and
+     * cover, with the audio taken from the copy that was found. Likes, the queue, Now Playing
+     * and the playlist row all keep pointing at the Spotify song, like they would in Spotify.
+     */
+    private fun dressed(original: Track, s: StandIn): Track = original.playingFrom(s.track)
 
     /**
      * Your server is where songs come from: Spotify songs are played from its copies instead of
@@ -506,15 +527,15 @@ class PlayerController(
      * first (in order, a few at a time). Everything else passes straight through.
      */
     private fun playable(tracks: List<Track>, then: (List<Track>) -> Unit) {
-        if (tracks.none { SpotifyImport.isSpotify(it.id) }) return then(tracks)
+        if (tracks.none(::needsStandIn)) return then(tracks)
         val bridge = spotify
         scope.launch {
             val gate = Semaphore(3)
             val out = coroutineScope {
                 tracks.map { t ->
                     async {
-                        if (!SpotifyImport.isSpotify(t.id)) t
-                        else gate.withPermit { bridge?.standIn(t)?.also { noteStandIn(t, it) }?.track }
+                        if (!needsStandIn(t)) t
+                        else gate.withPermit { bridge?.standIn(t)?.let { dressed(t, it) } }
                     }
                 }.awaitAll()
             }.filterNotNull()
@@ -525,7 +546,7 @@ class PlayerController(
     /** Straight after the current song, ahead of anything else in the queue. */
     fun playNext(track: Track) {
         if (remoteMode && SpotifyImport.isSpotify(track.id)) return spotify?.remote?.queue(track.id) ?: Unit
-        if (SpotifyImport.isSpotify(track.id)) return playable(listOf(track)) { playNext(it.first()) }
+        if (needsStandIn(track)) return playable(listOf(track)) { playNext(it.first()) }
         known[track.id] = track
         withController { c ->
             if (c.mediaItemCount == 0) {
@@ -541,7 +562,7 @@ class PlayerController(
     /** After the current song and anything queued before it, but ahead of the rest of the playlist, like Spotify. */
     fun addToQueue(track: Track) {
         if (remoteMode && SpotifyImport.isSpotify(track.id)) return spotify?.remote?.queue(track.id) ?: Unit
-        if (SpotifyImport.isSpotify(track.id)) return playable(listOf(track)) { addToQueue(it.first()) }
+        if (needsStandIn(track)) return playable(listOf(track)) { addToQueue(it.first()) }
         known[track.id] = track
         withController { c ->
             if (c.mediaItemCount == 0) {
@@ -558,7 +579,7 @@ class PlayerController(
     /** Adds songs to the very end, after the playlist. The DJ keeps its set going this way. */
     fun append(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        if (tracks.any { SpotifyImport.isSpotify(it.id) }) return playable(tracks) { append(it) }
+        if (tracks.any(::needsStandIn)) return playable(tracks) { append(it) }
         tracks.forEach { known[it.id] = it }
         withController { c ->
             if (c.mediaItemCount == 0) play(tracks, 0, playContext) else c.addMediaItems(tracks.map { mediaItemFor(it) })
@@ -569,7 +590,7 @@ class PlayerController(
     /** Swaps everything after the current song (keeping songs you queued) for [tracks]. */
     fun replaceUpcoming(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        if (tracks.any { SpotifyImport.isSpotify(it.id) }) return playable(tracks) { replaceUpcoming(it) }
+        if (tracks.any(::needsStandIn)) return playable(tracks) { replaceUpcoming(it) }
         tracks.forEach { known[it.id] = it }
         withController { c ->
             if (c.mediaItemCount == 0) return@withController play(tracks, 0, playContext)
@@ -670,6 +691,18 @@ class PlayerController(
         scope.launch {
             val queued = (0 until c.mediaItemCount).mapTo(HashSet()) { c.getMediaItemAt(it).mediaId }
             val lib = library.state.value
+            // After a Spotify song, Spotify keeps going with songs like it: the same artist and
+            // the people they work with, played from your server like the rest. Audius' charts
+            // have nothing to do with what you were listening to, so they're only the fallback.
+            val similar = if (SpotifyImport.isSpotify(last.id) && last.id !in lib.tasteExcluded) {
+                runCatching { similarTo?.invoke(last) }.getOrNull().orEmpty()
+                    .filterNot { it.id in queued || it.id in lib.tasteExcluded }
+                    .take(15)
+            } else emptyList()
+            if (similar.isNotEmpty()) {
+                append(similar)
+                return@launch
+            }
             // A song left out of the taste profile doesn't get to steer what plays next.
             val genre = if (last.id in lib.tasteExcluded) lib.tasteGenres().firstOrNull() else last.genre
             val more = runCatching { api.trendingTracks(genre = genre, limit = 30) }.getOrDefault(emptyList())
@@ -712,20 +745,26 @@ class PlayerController(
 
     /**
      * Plays a list that has Spotify songs in it on Spitify's own player: each Spotify song is
-     * swapped for the same song from Spitify's sources (or the closest one). The first one that
-     * turns up starts straight away and the rest join the queue as they're found.
+     * swapped for the very same recording from your server (or, without one, from Spitify's other
+     * sources). The first one that turns up starts straight away. The rest of the list joins the
+     * queue in order as it's found, all of it, so a 300-song playlist plays to the end instead
+     * of running out after a few dozen songs and drifting into autoplay.
      */
     private fun playStandIns(tracks: List<Track>, start: Int, from: PlayContext?, shuffle: Boolean? = null, lead: String? = null) {
         val bridge = spotify
         standInJob?.cancel()
         standInJob = scope.launch {
-            suspend fun resolve(t: Track): StandIn? =
-                if (!SpotifyImport.isSpotify(t.id)) StandIn(t, StandIn.Kind.EXACT) else bridge?.standIn(t)?.also { noteStandIn(t, it) }
-            val ordered = if (shuffle == true) tracks.shuffled() else tracks.drop(start)
-            val wanted = ordered.take(STAND_IN_MAX)
+            suspend fun resolve(t: Track): Track? =
+                if (!needsStandIn(t)) t else bridge?.standIn(t)?.let { dressed(t, it) }
+            val mixUp = shuffle ?: shuffleOn
+            val ordered = when {
+                shuffle == true -> tracks.shuffled()
+                mixUp -> listOf(tracks[start]) + tracks.filterIndexed { i, _ -> i != start }.shuffled()
+                else -> tracks.drop(start)
+            }.distinctBy { it.id }
             var firstAt = -1
-            var first: StandIn? = null
-            for ((i, t) in wanted.withIndex().take(6)) {
+            var first: Track? = null
+            for ((i, t) in ordered.withIndex().take(FIRST_TRIES)) {
                 first = resolve(t)
                 if (first != null) {
                     firstAt = i
@@ -733,31 +772,36 @@ class PlayerController(
                 }
             }
             val found = first ?: run {
-                _messages.tryEmit(lead ?: "\"${wanted.firstOrNull()?.title}\" isn't on your server or anywhere Spitify plays from")
+                _messages.tryEmit(lead ?: "\"${ordered.firstOrNull()?.title}\" isn't on your server or anywhere Spitify plays from")
                 return@launch
             }
-            startLocal(listOf(found.track), 0, from, shuffle)
+            startLocal(listOf(found), 0, from, shuffle)
             val skipped = when {
-                firstAt == 1 -> wanted[0].let { "Skipped \"${it.title}\" by ${it.artist}: it isn't on your server or anywhere Spitify plays from." }
+                firstAt == 1 -> ordered[0].let { "Skipped \"${it.title}\" by ${it.artist}: it isn't on your server or anywhere Spitify plays from." }
                 firstAt > 1 -> "Skipped $firstAt songs that aren't on your server or anywhere Spitify plays from."
                 else -> null
             }
             listOfNotNull(lead, skipped).joinToString(" ").ifBlank { null }?.let { _messages.tryEmit(it) }
+            // The rest goes in a chunk at a time, in order, so the next songs are ready quickly
+            // and the whole list ends up queued.
             val gate = Semaphore(3)
-            val rest = coroutineScope {
-                wanted.drop(firstAt + 1).map { t -> async { gate.withPermit { resolve(t) } } }.awaitAll()
-            }.filterNotNull().map { it.track }
-            if (rest.isNotEmpty()) append(rest)
+            // Nothing joins the queue before the first song has actually started.
+            firstLookup?.join()
+            val playing = HashMap<String, Track>().apply { put(ordered[firstAt].id, found) }
+            for (chunk in ordered.drop(firstAt + 1).chunked(STAND_IN_CHUNK)) {
+                val ready = coroutineScope {
+                    chunk.map { t -> async { gate.withPermit { t.id to resolve(t) } } }.awaitAll()
+                }
+                val add = ready.mapNotNull { (id, t) -> t?.also { playing[id] = it } }
+                if (add.isNotEmpty()) append(add)
+            }
+            // Turning shuffle off later goes back to the playlist's own order.
+            originalOrder = tracks.mapNotNull { playing[it.id] }
         }
     }
 
-    /** What to say when a stand-in isn't the exact song, shown when it starts playing. */
+    /** Messages waiting for a song to start, by song id. */
     private val standInNotes = java.util.concurrent.ConcurrentHashMap<String, String>()
-
-    private fun noteStandIn(original: Track, s: StandIn) {
-        // Only the exact song is ever used, so there's nothing to explain.
-        if (s.kind == StandIn.Kind.EXACT) return
-    }
 
     /** The Spotify app stopped playing for us: pick up the same list on Spitify's player. */
     private fun fallBackFromRemote(fromId: String?, why: String) {
@@ -962,14 +1006,37 @@ class PlayerController(
 
 internal const val EXTRA_MIME = "spitify.mime"
 
-/** How many songs of a Spotify list get swapped for stand-ins when Spotify can't play them. */
-private const val STAND_IN_MAX = 30
+/** Spotify songs are matched to playable copies this many at a time, then queued. */
+private const val STAND_IN_CHUNK = 15
+
+/** How many songs at the top of a list are tried before giving up on starting it. */
+private const val FIRST_TRIES = 6
+
+/** [Track.origin] of a Spotify song whose audio comes from your own server. */
+const val SERVER_ORIGIN = "Your server"
 
 /** How long a song waits for your server to say whether it has it, the first time it's played. */
 private const val FIRST_LOOKUP_MS = 2_500L
 
 /** How far down the queue songs are moved onto your server ahead of time. */
 private const val UPGRADE_AHEAD = 40
+
+/**
+ * This Spotify song with the audio of [source], the same recording found on your server or another
+ * source. Everything you see stays Spotify's; only where the sound comes from changes.
+ */
+fun Track.playingFrom(source: Track): Track {
+    if (!SpotifyImport.isSpotify(id) || source.id == id) return source
+    val fromServer = SpitifyServerApi.isServer(source.id) || com.srakim.spitify.data.SubsonicApi.isServer(source.id)
+    return this.copy(
+        streamUrl = source.streamUrl ?: source.playbackUri().toString(),
+        directUrl = null,
+        hls = source.hls,
+        origin = if (fromServer) SERVER_ORIGIN else source.source,
+        genre = genre ?: source.genre,
+        durationSec = durationSec.takeIf { it > 0 } ?: source.durationSec,
+    )
+}
 
 fun Track.remoteUri(): Uri = Uri.parse(SpitifyServerApi.resolve(streamUrl) ?: AudiusApi.streamUrl(id))
 

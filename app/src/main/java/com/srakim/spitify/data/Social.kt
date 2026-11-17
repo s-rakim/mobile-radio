@@ -311,7 +311,7 @@ class SocialStore(
         to,
         buildJsonObject {
             put("kind", "track")
-            put("track", json.encodeToJsonElement(track))
+            put("track", json.encodeToJsonElement(track.forSharing()))
             note?.takeIf { it.isNotBlank() }?.let { put("text", it) }
         },
     )
@@ -320,7 +320,7 @@ class SocialStore(
         to,
         buildJsonObject {
             put("kind", "playlist")
-            put("playlist", json.encodeToJsonElement(playlist))
+            put("playlist", json.encodeToJsonElement(playlist.copy(tracks = playlist.tracks.map { it.forSharing() })))
             note?.takeIf { it.isNotBlank() }?.let { put("text", it) }
         },
     )
@@ -482,3 +482,12 @@ class SocialStore(
         const val CHANNEL = "social"
     }
 }
+
+/**
+ * A song as a friend should get it. A Spotify song goes with Spotify's title, artists and cover
+ * only: the audio address on this phone points at a copy found here (and can be too long for
+ * the server to keep), so the friend's app finds its own copy, the way it does for any Spotify
+ * song.
+ */
+internal fun Track.forSharing(): Track =
+    if (SpotifyImport.isSpotify(id)) copy(streamUrl = null, directUrl = null, hls = false, origin = null) else this

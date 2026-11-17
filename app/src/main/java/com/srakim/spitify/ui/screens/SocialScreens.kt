@@ -1,5 +1,13 @@
 package com.srakim.spitify.ui.screens
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.heightIn
+import kotlinx.coroutines.async
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
 import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -188,7 +196,13 @@ fun ChatScreen(name: String) {
     }
     LaunchedEffect(chat?.messages?.size) { chat?.messages?.size?.let { if (it > 0) list.animateScrollToItem(it - 1) } }
 
-    Column(Modifier.fillMaxSize().background(SpitifyColors.Background).imePadding()) {
+    var pickingSong by remember { mutableStateOf(false) }
+    // The bar sits on whatever is lowest: the keyboard when it's up, otherwise the mini player
+    // and tab bar, which float over every page.
+    val keyboard = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val barBottom = maxOf(keyboard, LocalBottomInset.current)
+
+    Column(Modifier.fillMaxSize().background(SpitifyColors.Background)) {
         Row(Modifier.statusBarsPadding().height(60.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { actions.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
             val with = chat?.with
@@ -204,7 +218,7 @@ fun ChatScreen(name: String) {
                 chat == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SpitifyColors.Accent) }
                 else -> LazyColumn(state = list, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (chat!!.messages.isEmpty()) {
-                        item { Text("Say hi, or send a song from any song's menu.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp)) }
+                        item { Text("Say hi, or tap the note to send a song.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp)) }
                     }
                     items(chat!!.messages, key = { it.id }) { m ->
                         val mine = m.from == me
@@ -239,7 +253,16 @@ fun ChatScreen(name: String) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(SpitifyColors.Background)
+                .padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + barBottom),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { pickingSong = true }) {
+                Icon(Icons.Rounded.MusicNote, contentDescription = "Send a song", tint = SpitifyColors.TextSecondary)
+            }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it.take(1000) },
@@ -259,6 +282,87 @@ fun ChatScreen(name: String) {
                         .onFailure { actions.toast(it.message ?: "Couldn't send that") }
                 }
             }) { Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send", tint = SpitifyColors.Accent) }
+        }
+    }
+
+    if (pickingSong) {
+        SongPicker(
+            onDismiss = { pickingSong = false },
+            onPick = { track ->
+                pickingSong = false
+                val note = draft.trim().ifBlank { null }
+                draft = ""
+                scope.launch {
+                    runCatching { app.social.sendTrack(name, track, note) }
+                        .onSuccess { chat = runCatching { app.social.chat(name) }.getOrNull() ?: chat }
+                        .onFailure { actions.toast(it.message ?: "Couldn't send that") }
+                }
+            },
+        )
+    }
+}
+
+/** Pick a song to send: what's playing and what you played lately, or search for anything. */
+@Composable
+private fun SongPicker(onDismiss: () -> Unit, onPick: (com.srakim.spitify.data.Track) -> Unit) {
+    val app = LocalApp.current
+    val playing = app.player.state.collectAsStateWithLifecycle().value.current
+    val recent = app.library.state.collectAsStateWithLifecycle().value.recentTracks
+    var query by remember { mutableStateOf("") }
+    var found by remember { mutableStateOf<List<com.srakim.spitify.data.Track>?>(null) }
+    LaunchedEffect(query) {
+        val q = query.trim()
+        if (q.length < 2) { found = null; return@LaunchedEffect }
+        delay(350)
+        found = null
+        found = kotlinx.coroutines.coroutineScope {
+            val spotify = async { if (app.spotifyImport.hasToken) runCatching { app.spotifyImport.searchTracks(q) }.getOrDefault(emptyList()) else emptyList() }
+            val rest = async { runCatching { app.catalog.search(q).tracks }.getOrDefault(emptyList()) }
+            (spotify.await() + rest.await()).filterNot { it.isRadio }.distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }.take(30)
+        }
+    }
+    com.srakim.spitify.ui.sheets.SpitifySheet(onDismiss) {
+        Text("Send a song", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            placeholder = { Text("Search songs") },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SpitifyColors.Accent, cursorColor = SpitifyColors.Accent),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        val songs = when {
+            query.trim().length >= 2 -> found
+            else -> (listOfNotNull(playing) + recent).filterNot { it.isRadio }.distinctBy { it.id }.take(30)
+        }
+        when {
+            songs == null -> Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = SpitifyColors.Accent) }
+            songs.isEmpty() -> Text(
+                if (query.isBlank()) "Search for a song to send." else "No songs found.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(20.dp),
+            )
+            else -> LazyColumn(Modifier.heightIn(max = 420.dp).imePadding()) {
+                items(songs, key = { it.id }) { t ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics(mergeDescendants = true) { contentDescription = "Send song: ${t.title}" }
+                            .clickable { onPick(t) }
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(t.artwork, Modifier.size(48.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(t.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(t.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null, tint = SpitifyColors.Accent)
+                    }
+                }
+            }
         }
     }
 }

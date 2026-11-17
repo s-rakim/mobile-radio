@@ -90,6 +90,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -197,11 +198,16 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 shape = RoundedCornerShape(18.dp)
                 clip = sheetY.value > 1f
             }
+            // Spotify's player is one flat wash of the cover's colour that darkens towards the
+            // controls, then hands over to the page colour once you scroll into lyrics and credits.
+            .background(SpitifyColors.Background)
             .background(
                 Brush.verticalGradient(
-                    0f to lerp(color, Color.White, 0.05f),
-                    0.45f to art.secondary,
+                    0f to lerp(color, Color.White, 0.06f),
+                    0.55f to lerp(color, Color.Black, 0.22f),
+                    0.9f to lerp(color, Color.Black, 0.5f),
                     1f to SpitifyColors.Background,
+                    endY = with(LocalDensity.current) { (LocalConfiguration.current.screenHeightDp.dp + 220.dp).toPx() },
                 ),
             )
             .nestedScroll(pullToClose)
@@ -246,13 +252,9 @@ fun NowPlayingScreen(onClose: () -> Unit) {
             }
             val cover: @Composable (Modifier) -> Unit = { coverModifier ->
                 // Swipe the cover like Spotify: the next song's cover slides in from the right
-                // and lands as the new track, a swipe right goes back. The cover sits back a
-                // little while paused.
-                val coverScale by animateFloatAsState(
-                    if (state.isPlaying) 1f else 0.88f,
-                    spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow),
-                    label = "coverScale",
-                )
+                // and lands as the new track, a swipe right goes back. The cover stays full size
+                // when paused, as Spotify's does (the shrink-on-pause is another app's habit).
+                val coverScale = 1f
                 val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = 1) { 3 }
                 val nextTrack = state.upNext.firstOrNull()?.track
                 LaunchedEffect(pager) {
@@ -286,7 +288,7 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                                 scaleY = scale
                                 alpha = if (page == 0) 0.5f else 1f
                             }
-                            .shadow(32.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
+                            .shadow(18.dp, RoundedCornerShape(8.dp), ambientColor = Color.Black, spotColor = Color.Black),
                         shape = RoundedCornerShape(8.dp),
                         contentDescription = "Artwork for ${shown.title}",
                     )

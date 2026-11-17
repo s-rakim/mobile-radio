@@ -331,9 +331,19 @@ fun SpitifyRoot(app: SpitifyApp) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .background(Brush.verticalGradient(0f to Color.Transparent, 0.35f to SpitifyColors.Base.copy(alpha = 0.82f), 1f to SpitifyColors.Base)),
+                            // Spotify's bar sits on a long fade to black that starts well above it,
+                            // so whatever scrolls underneath dims out before it reaches the labels.
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to Color.Transparent,
+                                    0.22f to SpitifyColors.Base.copy(alpha = 0.55f),
+                                    0.5f to SpitifyColors.Base.copy(alpha = 0.88f),
+                                    1f to SpitifyColors.Base.copy(alpha = 0.97f),
+                                ),
+                            ),
                     ) {
                         Column {
+                            if (!wide) Spacer(Modifier.height(28.dp))
                             val jamHost = nearbyJams.firstOrNull { it !in hiddenJams }
                             AnimatedVisibility(
                                 visible = jamHost != null && !hostingJam && playback.context?.id != "jam:$jamHost",
@@ -537,64 +547,75 @@ fun SpitifyRoot(app: SpitifyApp) {
     }
 }
 
+private const val PAGE_MS = 320
+
 @Composable
 private fun AppNavHost(nav: NavHostController) {
     NavHost(
         navController = nav,
         startDestination = Tab.HOME.route,
-        // Switching tabs is a quick cross-fade. Opening a page slides it in from the side
-        // over a fading parent, and back reverses it, so you always know which way you went.
+        // Switching tabs is a quick cross-fade. Opening a page pushes it in from the right edge
+        // over the page you were on, which slips a little to the left and dims, the way Spotify
+        // stacks pages. Back pulls the top page off to the right again.
         enterTransition = {
             if (isTabSwitch()) fadeIn(tween(Motion.MEDIUM))
-            else slideIntoContainer(SlideDirection.Start, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 4 } + fadeIn(tween(Motion.MEDIUM))
+            else slideIntoContainer(SlideDirection.Start, tween(PAGE_MS, easing = EaseOutQuart))
         },
         exitTransition = {
             if (isTabSwitch()) fadeOut(tween(Motion.FAST))
-            else slideOutOfContainer(SlideDirection.Start, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 10 } + fadeOut(tween(Motion.MEDIUM))
+            else slideOutOfContainer(SlideDirection.Start, tween(PAGE_MS, easing = EaseOutQuart)) { it / 4 } +
+                fadeOut(tween(PAGE_MS), targetAlpha = 0.35f)
         },
         popEnterTransition = {
             if (isTabSwitch()) fadeIn(tween(Motion.MEDIUM))
-            else slideIntoContainer(SlideDirection.End, tween(Motion.SLOW, easing = EaseOutQuart)) { it / 10 } + fadeIn(tween(Motion.MEDIUM))
+            else slideIntoContainer(SlideDirection.End, tween(PAGE_MS, easing = EaseOutQuart)) { it / 4 } +
+                fadeIn(tween(PAGE_MS), initialAlpha = 0.35f)
         },
         popExitTransition = {
             if (isTabSwitch()) fadeOut(tween(Motion.FAST))
-            else slideOutOfContainer(SlideDirection.End, tween(Motion.MEDIUM, easing = EaseOutQuart)) { it / 4 } + fadeOut(tween(Motion.MEDIUM))
+            else slideOutOfContainer(SlideDirection.End, tween(PAGE_MS, easing = EaseOutQuart))
         },
     ) {
-        composable(Tab.HOME.route) { HomeScreen() }
-        composable(Tab.SEARCH.route) { SearchScreen() }
-        composable(Tab.LIBRARY.route) { LibraryScreen() }
-        composable(Dest.SEARCH_INPUT) { SearchInputScreen() }
-        composable("${Dest.SEARCH_INPUT}/{q}") { SearchInputScreen(it.arguments?.getString("q").orEmpty()) }
+        composable(Tab.HOME.route) { Page { HomeScreen() } }
+        composable(Tab.SEARCH.route) { Page { SearchScreen() } }
+        composable(Tab.LIBRARY.route) { Page { LibraryScreen() } }
+        composable(Dest.SEARCH_INPUT) { Page { SearchInputScreen() } }
+        composable("${Dest.SEARCH_INPUT}/{q}") { Page { SearchInputScreen(it.arguments?.getString("q").orEmpty()) } }
 
         Tab.entries.forEach { tab ->
             val p = tab.route
-            composable("$p/${Dest.PLAYLIST}") { PlaylistScreen(it.arguments?.getString("id").orEmpty()) }
-            composable("$p/${Dest.MY_PLAYLIST}") { MyPlaylistScreen(it.arguments?.getString("id").orEmpty()) }
-            composable("$p/${Dest.LIKED}") { LikedSongsScreen() }
-            composable("$p/${Dest.MIX}") { MixScreen(it.arguments?.getString("genre").orEmpty()) }
-            composable("$p/${Dest.ARTIST}") { ArtistScreen(it.arguments?.getString("id").orEmpty()) }
-            composable("$p/${Dest.SETTINGS}") { SettingsScreen() }
-            composable("$p/${Dest.EQUALIZER}") { EqualizerScreen() }
-            composable("$p/${Dest.THEMES}") { ThemeScreen() }
-            composable("$p/${Dest.HISTORY}") { HistoryScreen() }
-            composable("$p/${Dest.DOWNLOADS}") { DownloadsScreen() }
-            composable("$p/${Dest.LOCAL_FILES}") { LocalFilesScreen() }
-            composable("$p/${Dest.SERVER}") { ServerScreen() }
-            composable("$p/${Dest.ACCOUNT}") { AccountScreen() }
-            composable("$p/${Dest.SETTINGS_SECTION}") { SettingsScreen(it.arguments?.getString("id")) }
-            composable("$p/${Dest.IMPORT}") { ImportScreen() }
-            composable("$p/${Dest.STATS}") { StatsScreen() }
-            composable("$p/${Dest.UPDATES}") { UpdatesScreen() }
-            composable("$p/${Dest.MESSAGES}") { MessagesScreen() }
-            composable("$p/${Dest.CHAT}") { ChatScreen(it.arguments?.getString("name").orEmpty()) }
-            composable("$p/${Dest.FRIENDS}") { FriendsScreen() }
-            composable("$p/${Dest.PROFILE}") { ProfileScreen(it.arguments?.getString("name").orEmpty()) }
-            composable("$p/${Dest.COLLAB}") { CollabScreen(it.arguments?.getString("id").orEmpty()) }
-            composable("$p/${Dest.BLEND}") { BlendScreen(it.arguments?.getString("name").orEmpty()) }
-            composable("$p/${Dest.FOLDER}") { FolderScreen(it.arguments?.getString("id").orEmpty()) }
+            composable("$p/${Dest.PLAYLIST}") { Page { PlaylistScreen(it.arguments?.getString("id").orEmpty()) } }
+            composable("$p/${Dest.MY_PLAYLIST}") { Page { MyPlaylistScreen(it.arguments?.getString("id").orEmpty()) } }
+            composable("$p/${Dest.LIKED}") { Page { LikedSongsScreen() } }
+            composable("$p/${Dest.MIX}") { Page { MixScreen(it.arguments?.getString("genre").orEmpty()) } }
+            composable("$p/${Dest.ARTIST}") { Page { ArtistScreen(it.arguments?.getString("id").orEmpty()) } }
+            composable("$p/${Dest.SETTINGS}") { Page { SettingsScreen() } }
+            composable("$p/${Dest.EQUALIZER}") { Page { EqualizerScreen() } }
+            composable("$p/${Dest.THEMES}") { Page { ThemeScreen() } }
+            composable("$p/${Dest.HISTORY}") { Page { HistoryScreen() } }
+            composable("$p/${Dest.DOWNLOADS}") { Page { DownloadsScreen() } }
+            composable("$p/${Dest.LOCAL_FILES}") { Page { LocalFilesScreen() } }
+            composable("$p/${Dest.SERVER}") { Page { ServerScreen() } }
+            composable("$p/${Dest.ACCOUNT}") { Page { AccountScreen() } }
+            composable("$p/${Dest.SETTINGS_SECTION}") { Page { SettingsScreen(it.arguments?.getString("id")) } }
+            composable("$p/${Dest.IMPORT}") { Page { ImportScreen() } }
+            composable("$p/${Dest.STATS}") { Page { StatsScreen() } }
+            composable("$p/${Dest.UPDATES}") { Page { UpdatesScreen() } }
+            composable("$p/${Dest.MESSAGES}") { Page { MessagesScreen() } }
+            composable("$p/${Dest.CHAT}") { Page { ChatScreen(it.arguments?.getString("name").orEmpty()) } }
+            composable("$p/${Dest.FRIENDS}") { Page { FriendsScreen() } }
+            composable("$p/${Dest.PROFILE}") { Page { ProfileScreen(it.arguments?.getString("name").orEmpty()) } }
+            composable("$p/${Dest.COLLAB}") { Page { CollabScreen(it.arguments?.getString("id").orEmpty()) } }
+            composable("$p/${Dest.BLEND}") { Page { BlendScreen(it.arguments?.getString("name").orEmpty()) } }
+            composable("$p/${Dest.FOLDER}") { Page { FolderScreen(it.arguments?.getString("id").orEmpty()) } }
         }
     }
+}
+
+/** Every page is opaque so the one underneath never shows through while a new one slides over it. */
+@Composable
+private fun Page(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(SpitifyColors.Background)) { content() }
 }
 
 /** True when both ends of a navigation are top-level tabs (no "/" in the route). */

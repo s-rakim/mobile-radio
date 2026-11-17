@@ -14,7 +14,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -94,7 +93,7 @@ fun TrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick, onLongClick = onMore)
+            .combinedClickable(interactionSource = source, indication = null, onClick = onClick, onLongClick = onMore)
             .pressScale(source, pressed = 0.985f)
             .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

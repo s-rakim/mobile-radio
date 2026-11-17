@@ -60,9 +60,12 @@ object Motion {
 fun Modifier.pressScale(interactionSource: MutableInteractionSource, pressed: Float = 0.96f): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) pressed else 1f, Motion.press(), label = "pressScale")
+    // Spotify dims what you hold as well as shrinking it, which is what makes a tap feel "taken".
+    val dim by animateFloatAsState(if (isPressed) 0.68f else 1f, tween(if (isPressed) 70 else 240), label = "pressDim")
     graphicsLayer {
         scaleX = scale
         scaleY = scale
+        alpha = dim
     }
 }
 

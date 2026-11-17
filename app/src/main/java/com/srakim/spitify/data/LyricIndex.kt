@@ -81,7 +81,7 @@ class LyricIndex(context: Context, private val lyrics: LyricsApi) {
      */
     fun fill(tracks: List<Track>, max: Int = 300) {
         val todo = tracks.asSequence()
-            .filter { !it.isRadio && key(it) !in entries && key(it) !in missing && !lyrics.knownMissing(it) }
+            .filter { !it.isRadio && !entries.containsKey(key(it)) && key(it) !in missing && !lyrics.knownMissing(it) }
             .distinctBy { key(it) }
             .take(max)
             .toList()

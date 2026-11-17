@@ -604,26 +604,41 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
 
     /**
      * Looks for [src] in every source Spitify plays from directly (songs on this phone, your own
-     * server, Audius, Jamendo, Internet Archive, ccMixter and SoundCloud) and keeps the best
-     * close match. Imports stop there; playback can also settle for the same artist.
+     * server, Audius, Jamendo, Internet Archive, ccMixter and SoundCloud). Your own copies come
+     * first: if your server or phone has the song, that's the one that plays, even when another
+     * source has it too. Imports stop at a close match; playback can also settle for the same
+     * artist.
      */
     private suspend fun bestMatch(src: SourceTrack, catalog: Catalog, sameArtistWillDo: Boolean = false): StandIn? {
         val firstArtist = src.artist.split(",", "&", " feat", " ft.").first().trim()
         val title = clean(src.title)
         val query = listOf(title, firstArtist).filter { it.isNotBlank() }.joinToString(" ")
         var candidates = catalog.searchForMatch(query)
-        // Some catalogues only find a song by its title alone.
+        // Some catalogues (and Navidrome) only find a song by its title alone.
         if (candidates.none { score(src, it) >= CLOSE } && title.isNotBlank() && firstArtist.isNotBlank()) {
             candidates = candidates + catalog.searchForMatch(title)
         }
-        val (best, points) = candidates.map { it to score(src, it) }.maxByOrNull { it.second } ?: (null to 0.0)
-        if (best != null && points >= EXACT) return StandIn(best, StandIn.Kind.EXACT)
-        if (best != null && points >= CLOSE) return StandIn(best, StandIn.Kind.CLOSE)
+        grade(src, candidates.filter(::isYours))?.let { return it }
+        grade(src, candidates)?.let { return it }
         if (!sameArtistWillDo || firstArtist.isBlank()) return null
         val artist = clean(firstArtist)
         val pool = candidates.filter { similarity(clean(it.artist), artist) >= 0.85 }
             .ifEmpty { catalog.searchForMatch(firstArtist).filter { similarity(clean(it.artist), artist) >= 0.85 } }
-        return pool.maxByOrNull { it.playCount }?.let { StandIn(it, StandIn.Kind.SAME_ARTIST) }
+        val pick = pool.filter(::isYours).maxByOrNull { it.playCount } ?: pool.maxByOrNull { it.playCount }
+        return pick?.let { StandIn(it, StandIn.Kind.SAME_ARTIST) }
+    }
+
+    /** Songs on your own server (Navidrome or any Subsonic server) or on this phone. */
+    private fun isYours(t: Track) = t.isLocal || t.id.startsWith(SubsonicApi.ID_PREFIX)
+
+    /** The best of [candidates] when it's the same song or close to it. */
+    private fun grade(src: SourceTrack, candidates: List<Track>): StandIn? {
+        val (best, points) = candidates.map { it to score(src, it) }.maxByOrNull { it.second } ?: return null
+        return when {
+            points >= EXACT -> StandIn(best, StandIn.Kind.EXACT)
+            points >= CLOSE -> StandIn(best, StandIn.Kind.CLOSE)
+            else -> null
+        }
     }
 
     private fun score(src: SourceTrack, t: Track): Double {

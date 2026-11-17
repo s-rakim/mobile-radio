@@ -381,7 +381,15 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
             album to tracks
         } else {
             val o = api("https://api.spotify.com/v1/playlists/$id?fields=id,uri,name,description,images,owner(display_name,id),followers(total),external_urls").jsonObject
-            o.let(::toPlaylist) to pagedTracks("https://api.spotify.com/v1/playlists/$id/items?limit=100", 500, fallback = "https://api.spotify.com/v1/playlists/$id/tracks?limit=100")
+            val tracks = runCatching {
+                pagedTracks("https://api.spotify.com/v1/playlists/$id/items?limit=100", 500, fallback = "https://api.spotify.com/v1/playlists/$id/tracks?limit=100")
+            }
+            val refused = tracks.exceptionOrNull()?.message.orEmpty().contains("403")
+            // Spotify can show a playlist and still refuse its songs. The page keeps the header
+            // and says so, instead of failing as a whole. Anything else (a dropped connection)
+            // fails so the page tries again.
+            if (tracks.isFailure && !refused) throw tracks.exceptionOrNull()!!
+            o.let(::toPlaylist)?.copy(songsWithheld = refused) to tracks.getOrDefault(emptyList())
         }
     }
 

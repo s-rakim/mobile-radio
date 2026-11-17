@@ -656,7 +656,7 @@ class SpotifyImport(private val context: Context, private val client: OkHttpClie
     }
 
     /** Songs on your own server (Navidrome or any Subsonic server) or on this phone. */
-    private fun isYours(t: Track) = t.isLocal || t.id.startsWith(SubsonicApi.ID_PREFIX)
+    private fun isYours(t: Track) = t.isLocal || SubsonicApi.isServer(t.id) || SpitifyServerApi.isServer(t.id)
 
     private fun clean(s: String): String = SongMatch.clean(s)
 

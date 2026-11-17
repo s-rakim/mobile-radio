@@ -58,7 +58,7 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
     /** Your server's copies of songs from everywhere else. See data/ServerCopies.kt. */
-    val serverCopies: com.srakim.spitify.data.ServerCopies by lazy { com.srakim.spitify.data.ServerCopies(this, server, settings) }
+    val serverCopies: com.srakim.spitify.data.ServerCopies by lazy { com.srakim.spitify.data.ServerCopies(this, webServer, settings) }
     val downloads: DownloadStore by lazy { DownloadStore(this, httpClient, settings, serverCopies) }
     val updater: AppUpdater by lazy { AppUpdater(this, httpClient) }
     val account: AccountSync by lazy { AccountSync(this, httpClient, settings, library) }

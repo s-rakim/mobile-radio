@@ -69,7 +69,7 @@ class DownloadStore(
         if (!track.canDownload || _state.value.has(track.id) || _state.value.isDownloading(track.id)) return
         if (isOnCellular() && !s.downloadOnCellular) return
         io.launch {
-            val onServer = SubsonicApi.isServer(track.id) || (s.alwaysFromServer && copies.find(track) != null)
+            val onServer = SpitifyServerApi.isServer(track.id) || (s.alwaysFromServer && copies.find(track) != null)
             if (onServer) download(listOf(track))
         }
     }

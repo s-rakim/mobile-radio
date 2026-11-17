@@ -65,7 +65,7 @@ fun AccountScreen() {
     val state by account.state.collectAsStateWithLifecycle()
     val settings by LocalSettings.current.state.collectAsStateWithLifecycle()
     val lib by LocalLibrary.current.state.collectAsStateWithLifecycle()
-    val hasServer = SpitifyServerApi.base(settings.webServerUrl) != null
+    val hasServer = SpitifyServerApi.base(SpitifyServerApi.address(settings)) != null
 
     Column(Modifier.fillMaxSize().background(SpitifyColors.Background)) {
         Row(Modifier.statusBarsPadding().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {

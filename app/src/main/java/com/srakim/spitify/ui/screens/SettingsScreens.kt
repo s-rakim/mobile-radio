@@ -76,6 +76,7 @@ import com.srakim.spitify.ui.LocalBottomInset
 import com.srakim.spitify.ui.LocalDownloads
 import com.srakim.spitify.ui.LocalCatalog
 import com.srakim.spitify.data.LocalMusic
+import com.srakim.spitify.data.SpitifyServerApi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
@@ -354,7 +355,23 @@ private fun SettingsSectionPage(page: SettingsSection) {
     androidx.compose.runtime.LaunchedEffect(settings.subsonicUrl, settings.subsonicUser, settings.subsonicPassword, settings.subsonicEnabled) {
         serverStatus = if (!catalog.server.enabled) null else {
             serverStatus = "Checking…"
-            catalog.server.ping().fold({ "Connected" }, { "Not working: ${it.message}" })
+            catalog.server.ping().fold({ "Connected" }, { err ->
+                // A common mix-up: the Spitify server's address typed in here. That server isn't a
+                // Navidrome/Subsonic one, so it answers 404. Move it to where it belongs.
+                val typed = settings.subsonicUrl
+                val sameAsWeb = SpitifyServerApi.base(typed)?.toString() == SpitifyServerApi.base(settings.webServerUrl)?.toString()
+                when {
+                    !catalog.web.isSpitifyServer(typed) -> "Not working: ${err.message}"
+                    settings.webServerUrl.isBlank() || sameAsWeb -> {
+                        store.update {
+                            it.copy(webServerUrl = typed, webServerEnabled = true, subsonicUrl = "", subsonicUser = "", subsonicPassword = "", subsonicEnabled = false)
+                        }
+                        actions.toast("That's your Spitify server, so it's now under Account → Spitify server address")
+                        null
+                    }
+                    else -> "That's a Spitify server, not Navidrome. Put it under Account → Spitify server address."
+                }
+            })
         }
     }
     var webStatus by remember { mutableStateOf<String?>(null) }
@@ -990,7 +1007,7 @@ private fun SettingsSectionPage(page: SettingsSection) {
             text = {
                 Column {
                     Text(
-                        "The address of your Navidrome or Subsonic server, like http://192.168.1.20:4533 or your Tailscale name, plus your login.",
+                        "Only for a Navidrome or Subsonic server, like http://192.168.1.20:4533, plus your login. Your Spitify server (the one on port 3000) goes under Account → Spitify server address instead.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(12.dp))

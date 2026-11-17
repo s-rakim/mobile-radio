@@ -109,7 +109,8 @@ class ServerCopies(
         if (title.isBlank()) return null
         val artist = SongMatch.clean(SongMatch.firstArtist(track.artist))
         val query = "$artist $title".trim()
-        val searches = listOf<suspend (String) -> List<Track>>({ server.youtube(it) }, { server.soundcloud(it) })
+        // Only asking whether the song exists, so the server doesn't need to get it ready to play.
+        val searches = listOf<suspend (String) -> List<Track>>({ server.youtube(it, prepare = false) }, { server.soundcloud(it, prepare = false) })
         var best: Track? = null
         var anyAnswered = false
         for (search in searches) {
@@ -134,7 +135,7 @@ class ServerCopies(
         save()
     }
 
-    private fun key(): String = "${SpitifyServerApi.base(settings.current.webServerUrl)}"
+    private fun key(): String = "${SpitifyServerApi.base(SpitifyServerApi.address(settings.current))}"
 
     @Synchronized
     private fun ensureLoaded() {

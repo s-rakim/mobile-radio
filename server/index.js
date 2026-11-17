@@ -164,7 +164,7 @@ app.get('/api/youtube', async (req, res) => {
   const q = readQuery(req, res);
   if (!q) return;
 
-  const results = await youtubeRunner(q);
+  const results = await youtubeRunner(q, { prepare: req.query.prepare !== '0' });
   const base = baseUrl(req);
   res.json(
     results.map(({ streamPath, ...r }) => (streamPath ? { ...r, audioUrl: `${base}${streamPath}` } : r))

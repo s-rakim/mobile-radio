@@ -242,7 +242,7 @@ class AccountSync(
     private val slowHttp by lazy { http.newBuilder().readTimeout(150, java.util.concurrent.TimeUnit.SECONDS).build() }
 
     /** The server address: the one typed in Settings, else the one built into the app. */
-    fun serverBase() = SpitifyServerApi.base(settings.current.webServerUrl.ifBlank { com.srakim.spitify.BuildConfig.DEFAULT_SERVER_URL })
+    fun serverBase() = SpitifyServerApi.base(SpitifyServerApi.address(settings.current))
 
     private fun call(
         path: String,

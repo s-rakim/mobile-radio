@@ -12,11 +12,52 @@ const tracks = new Map();   // id -> { audioUrl, headers, expires }
 const queries = new Map();  // query -> { results, expires }
 const inflight = new Map(); // job key -> Promise
 
+// ---- Only a few yt-dlp runs at once ----
+// Each run is a whole Python process, and YouTube's challenge solving keeps a CPU core busy.
+// Without a limit, a phone checking a 50-song playlist starts 50 at once, the machine hits 100%,
+// and every run (including the song you just tapped) times out. So runs wait their turn:
+//   play    - a song someone is waiting to hear: always first
+//   search  - a search that YouTube's quick search couldn't answer
+//   prepare - getting a song ready before anyone asks: dropped when the queue is busy
+const MAX_RUNS = Math.max(1, parseInt(process.env.YT_CONCURRENCY || '2', 10));
+const PRIORITY = { play: 0, search: 1, prepare: 2 };
+const MAX_WAITING_PREPARES = 3;
+const waiting = [];
+let running = 0;
+
+function schedule(arg, priority) {
+  return new Promise((resolve) => {
+    const level = PRIORITY[priority] ?? PRIORITY.search;
+    if (level === PRIORITY.prepare) {
+      const prepares = waiting.filter((j) => j.level === PRIORITY.prepare).length;
+      if (prepares >= MAX_WAITING_PREPARES) return resolve({ error: 'Busy, skipped' });
+    }
+    waiting.push({ arg, level, resolve, at: Date.now() });
+    // lowest level first, then oldest first
+    waiting.sort((a, b) => a.level - b.level || a.at - b.at);
+    pump();
+  });
+}
+
+function pump() {
+  while (running < MAX_RUNS && waiting.length) {
+    const job = waiting.shift();
+    running++;
+    runPython(job.arg)
+      .then(job.resolve)
+      .finally(() => {
+        running--;
+        pump();
+      });
+  }
+}
+
 function runPython(arg) {
   return new Promise((resolve) => {
     execFile(PYTHON, ['-u', SCRIPT_PATH, arg], { timeout: 90000 }, (error, stdout, stderr) => {
       if (error) {
-        console.warn('[youtube] Python failed:', error.message, '\n', stderr);
+        const why = error.killed ? 'took longer than 90 seconds' : (stderr || '').trim().split('\n').pop() || error.message;
+        console.warn(`[youtube] ${arg.split(':')[0] || 'search'} failed: ${why}`);
         return resolve({ error: 'Extraction failed' });
       }
       const last = stdout.trim().split('\n').pop();
@@ -30,10 +71,16 @@ function runPython(arg) {
   });
 }
 
-// Two requests for the same thing at once share one Python run.
-function once(key, arg) {
+// Two requests for the same thing at once share one Python run. If a song someone is waiting
+// for is already queued as a "prepare", it's moved up to the front.
+function once(key, arg, priority = 'search') {
+  const queued = waiting.find((j) => j.arg === arg);
+  if (queued && PRIORITY[priority] < queued.level) {
+    queued.level = PRIORITY[priority];
+    waiting.sort((a, b) => a.level - b.level || a.at - b.at);
+  }
   if (!inflight.has(key)) {
-    inflight.set(key, runPython(arg).finally(() => inflight.delete(key)));
+    inflight.set(key, schedule(arg, priority).finally(() => inflight.delete(key)));
   }
   return inflight.get(key);
 }
@@ -50,7 +97,9 @@ function remember(data) {
 // Search. Only looks up titles and ids, which is quick; the audio link is
 // fetched when a song is played (see refetch). Returns stream paths like
 // /stream/yt-abc123; index.js adds the host.
-async function fetchTrack(query) {
+// `prepare: false` skips getting the top song ready, for lookups that only want to know
+// whether a song exists (the phone checking a playlist against the server).
+async function fetchTrack(query, { prepare = true } = {}) {
   const clean = query.replace(/^id:/i, '').trim();
   const key = clean.toLowerCase();
 
@@ -77,7 +126,7 @@ async function fetchTrack(query) {
   queries.set(key, { results, expires: Date.now() + SEARCH_TTL });
 
   // Get the top result ready in the background, since it's the one people usually tap.
-  if (results[0] && !getTrack(results[0].id)) refetch(results[0].id).catch(() => {});
+  if (prepare && results[0] && !getTrack(results[0].id)) refetch(results[0].id, 'prepare').catch(() => {});
 
   return results;
 }
@@ -94,13 +143,13 @@ function getTrack(id) {
 
 // Fetches a fresh stream for a known video, so old links (liked songs,
 // downloads, a server restart) keep working instead of expiring.
-async function refetch(id) {
+async function refetch(id, priority = 'play') {
   if (id.startsWith('sc-')) {
     const token = id.slice(3);
     if (!/^[\w-]{4,400}$/.test(token)) return null;
-    const data = await once(`scid:${token}`, `scid:${token}`);
+    const data = await once(`scid:${token}`, `scid:${token}`, priority);
     if (data.error || data.id !== id) {
-      console.warn('[soundcloud] Refetch failed for', id, data.error || '');
+      if (data.error !== 'Busy, skipped') console.warn('[soundcloud] Refetch failed for', id, data.error || '');
       return null;
     }
     remember(data);
@@ -110,9 +159,9 @@ async function refetch(id) {
   const videoId = id.replace(/^yt-/, '');
   if (!/^[\w-]{11}$/.test(videoId)) return null;
 
-  const data = await once(`id:${videoId}`, `id:${videoId}`);
+  const data = await once(`id:${videoId}`, `id:${videoId}`, priority);
   if (data.error || data.id !== id) {
-    console.warn('[youtube] Refetch failed for', id, data.error || '');
+    if (data.error !== 'Busy, skipped') console.warn('[youtube] Refetch failed for', id, data.error || '');
     return null;
   }
   remember(data);

@@ -50,6 +50,14 @@ All search routes take `?q=` and answer 400 without it. The catalogue routes giv
 
 Each source shows up on the page as soon as it answers. Searches are cached for 10 minutes (YouTube for a day), two identical searches at once share one request, and a source that keeps failing, like ccMixter when it's down, is skipped for 5 minutes instead of slowing every search.
 
+## Load
+
+Each YouTube or SoundCloud lookup that yt-dlp handles is a whole Python process, and solving YouTube's challenge keeps a CPU core busy. Only `YT_CONCURRENCY` (default 2) run at once. A song someone tapped always goes first, searches next, and getting songs ready ahead of time is skipped when the queue is busy. The phone's playlist checks ask with `prepare=0`, so they never start that extra work. On a machine with more cores, raise it in `server/.env`, e.g. `YT_CONCURRENCY=4`.
+
+## Making it the app's default server
+
+Set the `SPITIFY_SERVER_URL` Actions variable (repo Settings → Secrets and variables → Actions → Variables) to this server's address, e.g. `http://100.120.105.81:3000`. Every APK built after that uses it out of the box, for search, playback, accounts and the server-copy lookups. An address typed in the app's Settings still wins.
+
 ## Reaching it from the phone
 
 Two options for the address you give the app:

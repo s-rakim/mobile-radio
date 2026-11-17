@@ -38,20 +38,39 @@ class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore
     }
 
     val enabled: Boolean
-        get() = settings.current.let { it.webServerEnabled && base(it.webServerUrl) != null }
+        get() = settings.current.let { it.webServerEnabled && base(address(it)) != null }
 
     suspend fun ping(): Result<Unit> = runCatching {
         val body = get(quick, "health", emptyMap())
         if (body.trim() != "ok") throw IOException("That doesn't look like a Spitify server")
     }
 
-    suspend fun youtube(query: String): List<Track> = streamed("api/youtube", query, "YouTube")
+    /**
+     * Whether [raw] is the address of a Spitify server, checked without saving it anywhere.
+     * Used to catch a Spitify server address typed into the Navidrome/Subsonic field.
+     */
+    suspend fun isSpitifyServer(raw: String): Boolean = withContext(Dispatchers.IO) {
+        val url = base(raw)?.newBuilder()?.addPathSegment("health")?.build() ?: return@withContext false
+        runCatching {
+            quick.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                r.isSuccessful && r.body?.string()?.trim() == "ok"
+            }
+        }.getOrDefault(false)
+    }
+
+    /**
+     * YouTube search on the server. [prepare] = false tells the server not to get the top song
+     * ready to play, for lookups that only check whether a song exists. Getting a song ready is a
+     * whole yt-dlp run on the server, and a playlist check asks about dozens of songs.
+     */
+    suspend fun youtube(query: String, prepare: Boolean = true): List<Track> = streamed("api/youtube", query, "YouTube", prepare)
 
     /** SoundCloud through the server's yt-dlp, played through the server like YouTube. */
-    suspend fun soundcloud(query: String): List<Track> = streamed("api/soundcloud", query, "SoundCloud")
+    suspend fun soundcloud(query: String, prepare: Boolean = true): List<Track> = streamed("api/soundcloud", query, "SoundCloud", prepare)
 
-    private suspend fun streamed(route: String, query: String, label: String): List<Track> {
-        val items = parseArray(get(patient, route, mapOf("q" to query)))
+    private suspend fun streamed(route: String, query: String, label: String, prepare: Boolean = true): List<Track> {
+        val params = if (prepare) mapOf("q" to query) else mapOf("q" to query, "prepare" to "0")
+        val items = parseArray(get(patient, route, params))
         return items.mapNotNull { o ->
             if (o.text("error") != null) return@mapNotNull null
             val id = o.text("id") ?: return@mapNotNull null
@@ -115,7 +134,7 @@ class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore
 
     private suspend fun get(client: OkHttpClient, path: String, params: Map<String, String>): String =
         withContext(Dispatchers.IO) {
-            val base = base(settings.current.webServerUrl) ?: throw IOException("Add your Spitify server in Settings")
+            val base = base(address(settings.current)) ?: throw IOException("Add your Spitify server in Settings")
             val url = base.newBuilder().apply {
                 path.split("/").forEach { addPathSegment(it) }
                 params.forEach { (k, v) -> addQueryParameter(k, v) }
@@ -137,6 +156,12 @@ class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore
 
         fun isServer(id: String) = id.startsWith(ID_PREFIX)
 
+        /**
+         * The Spitify server to use: the one typed in Settings, or else the one the app was built
+         * with (the SPITIFY_SERVER_URL Actions variable), so a fresh install uses it with no setup.
+         */
+        fun address(s: AppSettings): String = s.webServerUrl.ifBlank { com.srakim.spitify.BuildConfig.DEFAULT_SERVER_URL }
+
         /** Accepts "100.101.102.103:3000" as well as a full URL, and drops a trailing slash. */
         fun base(raw: String): HttpUrl? {
             val trimmed = raw.trim().trimEnd('/')
@@ -148,7 +173,7 @@ class SpitifyServerApi(client: OkHttpClient, private val settings: SettingsStore
         /** Turns a saved "spitify-server:/stream/..." link into a real one using today's address. */
         fun resolve(url: String?): String? {
             if (url == null || !url.startsWith(SCHEME)) return url
-            val base = store?.current?.webServerUrl?.let(::base) ?: return url
+            val base = store?.current?.let { base(address(it)) } ?: return url
             return base.toString().trimEnd('/') + url.removePrefix(SCHEME)
         }
     }

@@ -10,6 +10,8 @@ services:
       - YTDLP_POT_PROVIDER_URL=http://bgutil:4416
       - JAMENDO_CLIENT_ID=${JAMENDO_CLIENT_ID:-}
       - DATA_DIR=/data
+      # how many yt-dlp runs at once; each keeps a CPU core busy while it works
+      - YT_CONCURRENCY=${YT_CONCURRENCY:-2}
       # set to false once everyone who needs an account has one
       - ALLOW_SIGNUPS=${ALLOW_SIGNUPS:-true}
       # AI Playlist and AI DJ. Leave blank to run the rules-only DJ.

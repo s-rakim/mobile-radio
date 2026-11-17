@@ -559,8 +559,24 @@ fun LazyListScope.collectionTracks(
     }
 }
 
+/** Songs liked here and, when you're signed in, in your Spotify Liked Songs: both get the green tick. */
 @Composable
 fun rememberLikedIds(): Set<String> {
     val lib by LocalLibrary.current.state.collectAsStateWithLifecycle()
-    return remember(lib.liked) { lib.liked.mapTo(HashSet()) { it.id } }
+    val spotify by com.srakim.spitify.ui.LocalApp.current.spotifyLibrary.state.collectAsStateWithLifecycle()
+    return remember(lib.liked, spotify.liked) { (lib.liked + spotify.liked).mapTo(HashSet()) { it.id } }
 }
+
+/** Liked in Spotify but not here, so Spitify can't take it out of Liked Songs on its own. */
+@Composable
+fun rememberSpotifyOnlyLikes(): Set<String> {
+    val lib by LocalLibrary.current.state.collectAsStateWithLifecycle()
+    val spotify by com.srakim.spitify.ui.LocalApp.current.spotifyLibrary.state.collectAsStateWithLifecycle()
+    return remember(lib.liked, spotify.liked) {
+        val here = lib.liked.mapTo(HashSet()) { it.id }
+        spotify.liked.map { it.id }.filterTo(HashSet()) { it !in here }
+    }
+}
+
+/** What to say when someone tries to unlike a song that only Spotify has as liked. */
+const val SPOTIFY_LIKE_NOTE = "This one's in your Spotify Liked Songs. Unlike it in Spotify and it goes from here too."

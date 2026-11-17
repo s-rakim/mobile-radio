@@ -39,13 +39,17 @@ class LyricsApi(private val client: OkHttpClient) {
         val instrumental: Boolean = false,
         val plainLyrics: String? = null,
         val syncedLyrics: String? = null,
+        val duration: Double? = null,
     )
 
     suspend fun find(track: Track): Lyrics? {
         found[track.id]?.let { return it }
         if (track.id in missing) return null
         val result = withContext(Dispatchers.IO) {
-            runCatching { exact(track) ?: search(track) }.getOrNull()
+            // Spotify lists every artist ("Rihanna, Drake") and server copies often carry a
+            // YouTube title ("Rihanna - Work (Official Video)"), neither of which LRCLIB knows.
+            // So the song is also tried as plain title and main artist.
+            lookups(track).firstNotNullOfOrNull { t -> runCatching { exact(t) ?: search(t) }.getOrNull() }
         }
         if (result != null) {
             found[track.id] = result
@@ -153,9 +157,33 @@ class LyricsApi(private val client: OkHttpClient) {
             .addQueryParameter("artist_name", track.artist)
             .build()
         val body = get(url.toString()) ?: return null
+        val artist = LyricText.norm(track.artist)
+        val title = LyricText.norm(track.title)
+        // LRCLIB credits the main artist only, or every artist; either is the same song.
         return json.decodeFromString<List<Entry>>(body)
-            .firstOrNull { it.artistName.equals(track.artist, ignoreCase = true) }
-            ?.toLyrics()
+            .filter { e ->
+                val a = LyricText.norm(e.artistName.orEmpty())
+                a.isNotBlank() && (a == artist || a.contains(artist) || artist.contains(a)) &&
+                    LyricText.norm(e.trackName.orEmpty()) == title
+            }
+            // Closest length first, so a live or extended cut doesn't win.
+            .sortedBy { if (track.durationSec > 0) kotlin.math.abs((it.duration ?: 0.0) - track.durationSec) else 0.0 }
+            .firstNotNullOfOrNull { it.toLyrics() }
+    }
+
+    /** The song as given, then as plain title and main artist. */
+    private fun lookups(track: Track): List<Track> {
+        val main = SongMatch.firstArtist(track.artistSearchName.ifBlank { track.artist })
+        var title = track.title
+        // "Rihanna - Work (Official Video)": the artist's name in front of the title.
+        if (main.isNotBlank() && title.startsWith("$main - ", ignoreCase = true)) title = title.substring(main.length + 3)
+        title = title
+            .replace(Regex("\\s*[(\\[][^)\\]]*(official|video|audio|lyric|visuali[sz]er|feat\\.?|ft\\.|with )[^)\\]]*[)\\]]", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+-\\s+.*(remaster|version|edit|mono|stereo).*$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+(feat\\.?|ft\\.)\\s.*$", RegexOption.IGNORE_CASE), "")
+            .trim()
+        val plain = track.copy(title = title.ifBlank { track.title }, artist = main.ifBlank { track.artist })
+        return listOf(track, plain).distinctBy { it.title.lowercase() + "|" + it.artist.lowercase() }
     }
 
     private fun get(url: String, browser: Boolean = false): String? {

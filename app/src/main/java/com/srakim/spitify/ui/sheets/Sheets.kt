@@ -153,7 +153,8 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val lib by library.state.collectAsStateWithLifecycle()
     val dl by downloads.state.collectAsStateWithLifecycle()
-    val liked = lib.liked.any { it.id == track.id }
+    val spotifyOnly = com.srakim.spitify.ui.screens.rememberSpotifyOnlyLikes()
+    val liked = lib.liked.any { it.id == track.id } || track.id in spotifyOnly
     val excluded = track.id in lib.tasteExcluded
     val downloaded = dl.has(track.id)
 
@@ -162,8 +163,12 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
         if (liked) "Remove from Liked Songs" else "Add to Liked Songs",
         tint = if (liked) SpitifyColors.Accent else SpitifyColors.TextSecondary,
         onClick = {
-            val now = library.toggleLike(track)
-            actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+            if (track.id in spotifyOnly) {
+                actions.toast(com.srakim.spitify.ui.screens.SPOTIFY_LIKE_NOTE)
+            } else {
+                val now = library.toggleLike(track)
+                actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+            }
             onDismiss()
         },
     )
@@ -196,8 +201,12 @@ fun TrackMenuOptions(track: Track, playlistId: String?, onDismiss: () -> Unit) {
     }
     if (playlistId == LIKED_PLAYLIST && liked) {
         SheetOption(MenuIcons.RemoveFromPlaylist, "Remove from this playlist", onClick = {
-            library.toggleLike(track)
-            actions.toast("Removed from Liked Songs")
+            if (track.id in spotifyOnly) {
+                actions.toast(com.srakim.spitify.ui.screens.SPOTIFY_LIKE_NOTE)
+            } else {
+                library.toggleLike(track)
+                actions.toast("Removed from Liked Songs")
+            }
             onDismiss()
         })
     } else if (playlistId != null && playlistId != LIKED_PLAYLIST) {

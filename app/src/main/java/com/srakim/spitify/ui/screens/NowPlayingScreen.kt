@@ -132,7 +132,8 @@ fun NowPlayingScreen(onClose: () -> Unit) {
     val state by player.state.collectAsStateWithLifecycle()
     val lib by library.state.collectAsStateWithLifecycle()
     val track = state.current ?: return
-    val liked = lib.liked.any { it.id == track.id }
+    val spotifyOnly = rememberSpotifyOnlyLikes()
+    val liked = lib.liked.any { it.id == track.id } || track.id in spotifyOnly
     val art = rememberArtworkColors(track.artworkLarge ?: track.artwork, SpitifyColors.Highlight)
     val color = art.primary
     val likePop by rememberPop(liked)
@@ -257,12 +258,16 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                 val coverScale = 1f
                 val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = 1) { 3 }
                 val nextTrack = state.upNext.firstOrNull()?.track
+                val currentId by rememberUpdatedState(track.id)
                 LaunchedEffect(pager) {
                     snapshotFlow { pager.settledPage }.collect { page ->
-                        when (page) {
-                            2 -> player.next()
-                            0 -> player.previous()
-                        }
+                        if (page == 1) return@collect
+                        val before = currentId
+                        if (page == 2) player.next() else player.previous()
+                        // Nothing to skip to (end of the queue), or "previous" only went back to
+                        // the start of this song: slide the cover back instead of leaving it stuck.
+                        kotlinx.coroutines.delay(700)
+                        if (currentId == before && pager.currentPage != 1) pager.animateScrollToPage(1)
                     }
                 }
                 // Whatever caused the change, come back to the middle page showing the new song.
@@ -342,8 +347,12 @@ fun NowPlayingScreen(onClose: () -> Unit) {
                         }
                     }
                     IconButton(onClick = {
-                        val now = library.toggleLike(track)
-                        actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+                        if (track.id in spotifyOnly) {
+                            actions.toast(SPOTIFY_LIKE_NOTE)
+                        } else {
+                            val now = library.toggleLike(track)
+                            actions.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
+                        }
                     }) {
                         Icon(
                             if (liked) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline,

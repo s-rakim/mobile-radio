@@ -88,7 +88,7 @@ class Catalog(
 
     /**
      * Songs from every source Spitify plays directly, all asked at once: this phone, your own
-     * server, Audius and the open catalogues. Used to find a Spotify song somewhere Spitify can
+     * server (Settings → Music sources → Your server), Audius and the open catalogues. Used to find a Spotify song somewhere Spitify can
      * play it. Each source gets a few seconds; whatever answers in time counts.
      */
     suspend fun searchForMatch(query: String): List<Track> = coroutineScope {
@@ -98,7 +98,9 @@ class Catalog(
             async { withTimeoutOrNull(DIRECT_TIMEOUT_MS) { runCatching { audius.searchTracks(q) }.getOrNull() }.orEmpty() },
             async {
                 if (!server.enabled) emptyList()
-                else withTimeoutOrNull(SERVER_SEARCH_TIMEOUT_MS) { runCatching { server.search(q).tracks }.getOrNull() }.orEmpty()
+                // A home server over Tailscale can be slow to answer, and it's the copy you'd
+                // rather hear, so it gets a little longer here than in Search.
+                else withTimeoutOrNull(SERVER_MATCH_TIMEOUT_MS) { runCatching { server.search(q).tracks }.getOrNull() }.orEmpty()
             },
             async { searchJamendo(q) },
             async { searchArchive(q) },
@@ -176,6 +178,7 @@ class Catalog(
 
     private companion object {
         const val SERVER_SEARCH_TIMEOUT_MS = 3_000L
+        const val SERVER_MATCH_TIMEOUT_MS = 6_000L
         const val OPEN_CATALOG_TIMEOUT_MS = 8_000L
         const val RADIO_TIMEOUT_MS = 8_000L
         const val DIRECT_TIMEOUT_MS = 4_000L

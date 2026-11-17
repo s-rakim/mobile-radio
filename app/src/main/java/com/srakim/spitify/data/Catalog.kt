@@ -1,6 +1,7 @@
 package com.srakim.spitify.data
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -84,6 +85,30 @@ class Catalog(
     suspend fun searchCcMixter(query: String): List<Track> = direct(ccMixter.enabled, query) { ccMixter.searchTracks(it) }
     suspend fun searchJamendo(query: String): List<Track> = direct(jamendo.enabled, query) { jamendo.searchTracks(it) }
     suspend fun searchSoundCloudDirect(query: String): List<Track> = direct(soundCloud.enabled, query) { soundCloud.searchTracks(it) }
+
+    /**
+     * Songs from every source Spitify plays directly, all asked at once: this phone, your own
+     * server, Audius and the open catalogues. Used to find a Spotify song somewhere Spitify can
+     * play it. Each source gets a few seconds; whatever answers in time counts.
+     */
+    suspend fun searchForMatch(query: String): List<Track> = coroutineScope {
+        val q = query.trim()
+        if (q.isEmpty() || settings.current.offlineMode) return@coroutineScope emptyList()
+        val remote = listOf(
+            async { withTimeoutOrNull(DIRECT_TIMEOUT_MS) { runCatching { audius.searchTracks(q) }.getOrNull() }.orEmpty() },
+            async {
+                if (!server.enabled) emptyList()
+                else withTimeoutOrNull(SERVER_SEARCH_TIMEOUT_MS) { runCatching { server.search(q).tracks }.getOrNull() }.orEmpty()
+            },
+            async { searchJamendo(q) },
+            async { searchArchive(q) },
+            async { searchCcMixter(q) },
+            async { searchSoundCloudDirect(q) },
+        )
+        val onDevice = if (settings.current.showLocalFiles) runCatching { local.search(q) }.getOrDefault(emptyList()) else emptyList()
+        // Your own copies first, so they win a tie.
+        onDevice + remote.awaitAll().flatten()
+    }
 
     /** Archive albums and Jamendo artists, which go into the Playlists and Artists tabs. */
     suspend fun searchOpenExtras(query: String): SearchResults = coroutineScope {

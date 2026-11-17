@@ -71,6 +71,7 @@ import com.srakim.spitify.data.PlayContext
 import com.srakim.spitify.data.Profile
 import com.srakim.spitify.data.SharedPlaylist
 import com.srakim.spitify.ui.AppSheet
+import com.srakim.spitify.ui.components.MyAvatar
 import com.srakim.spitify.ui.Load
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApp
@@ -146,7 +147,7 @@ fun MessagesScreen() {
                 Modifier.fillMaxWidth().clickable { actions.openChat(c.with.username) }.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(c.with.displayName, c.with.color, 52.dp)
+                Avatar(c.with.displayName, c.with.color, 52.dp, image = c.with.avatar)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(c.with.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
@@ -192,7 +193,7 @@ fun ChatScreen(name: String) {
             IconButton(onClick = { actions.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
             val with = chat?.with
             Row(Modifier.weight(1f).clickable { actions.openProfile(name) }, verticalAlignment = Alignment.CenterVertically) {
-                Avatar(with?.displayName ?: name, with?.color, 36.dp)
+                Avatar(with?.displayName ?: name, with?.color, 36.dp, image = with?.avatar)
                 Spacer(Modifier.width(10.dp))
                 Text(with?.displayName ?: name, style = MaterialTheme.typography.titleMedium)
             }
@@ -434,7 +435,7 @@ fun ProfileScreen(name: String) {
         }
         item {
             Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Avatar(p?.displayName ?: name, p?.color, 112.dp)
+                if (isMe) MyAvatar(132.dp) else Avatar(p?.displayName ?: name, p?.color, 132.dp, image = p?.avatar)
                 Spacer(Modifier.height(12.dp))
                 Text(p?.displayName ?: name, style = MaterialTheme.typography.headlineSmall)
                 Text("@$name" + if (friend?.followsYou == true) " • Follows you" else "", style = MaterialTheme.typography.bodySmall)
@@ -454,7 +455,7 @@ fun ProfileScreen(name: String) {
                         OutlineButton("Blend", onClick = { actions.openBlend(name) })
                     }
                 } else {
-                    OutlineButton("Edit profile", onClick = { actions.openSettingsSection("account") })
+                    OutlineButton("Edit profile", onClick = { actions.showSheet(AppSheet.EditProfile) })
                 }
             }
         }
@@ -581,7 +582,7 @@ fun CollabScreen(id: String) {
                     Text(c.name, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        c.members.take(5).forEachIndexed { i, m -> Avatar(m.displayName, m.color, 26.dp, Modifier.offset(x = (-8 * i).dp)) }
+                        c.members.take(5).forEachIndexed { i, m -> Avatar(m.displayName, m.color, 26.dp, Modifier.offset(x = (-8 * i).dp), image = m.avatar) }
                         Text(
                             c.members.joinToString(", ") { it.displayName }.let { if (it.length > 40) it.take(40) + "…" else it },
                             style = MaterialTheme.typography.bodySmall,
@@ -684,8 +685,8 @@ private fun BlendBody(b: BlendResult, playback: com.srakim.spitify.playback.Play
     CollectionScaffold(title = b.name, color = profileColor(b.with.color).copy(alpha = 0.75f), header = {
         Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row {
-                Avatar(me?.displayName ?: "You", me?.color, 96.dp)
-                Avatar(b.with.displayName, b.with.color, 96.dp, Modifier.offset(x = (-20).dp))
+                MyAvatar(96.dp)
+                Avatar(b.with.displayName, b.with.color, 96.dp, Modifier.offset(x = (-20).dp), image = b.with.avatar)
             }
             Spacer(Modifier.height(14.dp))
             Text(b.name, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)

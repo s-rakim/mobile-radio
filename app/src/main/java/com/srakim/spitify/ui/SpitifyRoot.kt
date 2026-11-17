@@ -55,6 +55,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -107,6 +109,7 @@ import com.srakim.spitify.ui.sheets.CreateOption
 import com.srakim.spitify.ui.sheets.AiPlaylistSheet
 import com.srakim.spitify.ui.sheets.DjSheet
 import com.srakim.spitify.ui.sheets.MoveToFolderSheet
+import com.srakim.spitify.ui.sheets.EditProfileDialog
 import com.srakim.spitify.ui.sheets.ProfileDrawer
 import com.srakim.spitify.ui.sheets.ConnectSheet
 import com.srakim.spitify.ui.sheets.SendToSheet
@@ -129,6 +132,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
 import com.srakim.spitify.ui.sheets.MiniPlayer
 import com.srakim.spitify.ui.sheets.TrackMenuSheet
 import com.srakim.spitify.ui.sheets.QueueSheet
@@ -158,6 +162,9 @@ fun SpitifyRoot(app: SpitifyApp) {
     var createPlaylist by remember { mutableStateOf(false) }
     var createWithTrack by remember { mutableStateOf<Track?>(null) }
     var sheet by remember { mutableStateOf<AppSheet?>(null) }
+    // Bumped on every open, so asking for a sheet always shows it fresh, even if the last copy
+    // of the same sheet never reported that it closed.
+    var sheetOpens by remember { mutableIntStateOf(0) }
     var pendingFolderMove by remember { mutableStateOf<String?>(null) }
     var collabInvite by remember { mutableStateOf<CollabPreview?>(null) }
     var hiddenJams by remember { mutableStateOf(setOf<String>()) }
@@ -184,7 +191,10 @@ fun SpitifyRoot(app: SpitifyApp) {
             showJam = { jamFor = it },
             showSleepTimer = { sleepTimerOpen = true },
             showSongDna = { dnaFor = it },
-            showSheet = { sheet = it },
+            showSheet = {
+                sheet = it
+                sheetOpens++
+            },
             openPlayer = { playerOpen = true },
             closePlayer = { playerOpen = false },
         )
@@ -209,9 +219,11 @@ fun SpitifyRoot(app: SpitifyApp) {
     val hostingJam by app.nearby.hosting.collectAsStateWithLifecycle()
 
     // Collab invites, profile links and the Spotify sign-in coming back from the browser.
-    val link by Links.incoming.collectAsStateWithLifecycle()
-    LaunchedEffect(link) {
-        val l = link ?: return@LaunchedEffect
+    // Collected once for the life of the app screen. Keying an effect on the link and then
+    // clearing it restarted the effect and cancelled whatever it was doing, which is how the
+    // Spotify sign-in got cut off with "The coroutine scope left the composition".
+    LaunchedEffect(Unit) {
+        Links.incoming.filterNotNull().collect { l ->
         Links.incoming.value = null
         when (l) {
             is Links.Link.CollabInvite -> {
@@ -228,36 +240,37 @@ fun SpitifyRoot(app: SpitifyApp) {
             is Links.Link.Playlist -> actions.openPlaylist(l.id)
             is Links.Link.Artist -> actions.openArtist(l.id)
             Links.Link.Player -> if (app.player.state.value.current != null) playerOpen = true
-            is Links.Link.SpotifyAuth -> {
-                runCatching { app.spotifyImport.finishSignIn(l.code, l.state, l.error) }
-                    .onSuccess {
-                        actions.toast("Signed in to Spotify. Your music is loading.")
-                        // Only jump back into Import if that's where the sign-in started.
-                        if (nav.currentBackStackEntry?.destination?.route?.endsWith("/${Dest.IMPORT}") == true) {
-                            nav.popBackStack()
-                            actions.openImport()
-                        }
-                    }
-                    .onFailure { actions.toast(it.message ?: "Spotify sign-in didn't finish") }
+            is Links.Link.SpotifyAuth -> app.spotifyImport.completeSignIn(l.code, l.state, l.error)
+        }
+        }
+    }
+    // How the Spotify sign-in went, once it's done.
+    LaunchedEffect(Unit) {
+        app.spotifyImport.signIn.collect { s ->
+            when (s) {
+                com.srakim.spitify.data.SpotifyImport.SignIn.Working -> actions.toast("Signing in to Spotify…")
+                com.srakim.spitify.data.SpotifyImport.SignIn.Done -> actions.toast("Signed in to Spotify. Your music is loading.")
+                is com.srakim.spitify.data.SpotifyImport.SignIn.Failed -> actions.toast(s.message)
+                com.srakim.spitify.data.SpotifyImport.SignIn.Idle -> Unit
             }
         }
     }
     // Someone opened a Jam invite: load the host's songs and jump to where they are now.
-    val invite by Jam.incoming.collectAsStateWithLifecycle()
-    LaunchedEffect(invite) {
-        val inv = invite ?: return@LaunchedEffect
-        Jam.incoming.value = null
-        actions.toast("Joining the Jam…")
-        val tracks = runCatching { app.api.tracksByIds(inv.ids) }.getOrDefault(emptyList())
-        if (tracks.isEmpty()) {
-            actions.toast("Couldn't load that Jam. Check your connection and try again.")
-            return@LaunchedEffect
+    LaunchedEffect(Unit) {
+        Jam.incoming.filterNotNull().collect { inv ->
+            Jam.incoming.value = null
+            actions.toast("Joining the Jam…")
+            val tracks = runCatching { app.api.tracksByIds(inv.ids) }.getOrDefault(emptyList())
+            if (tracks.isEmpty()) {
+                actions.toast("Couldn't load that Jam. Check your connection and try again.")
+                return@collect
+            }
+            val (index, offset) = Jam.catchUp(inv, tracks)
+            app.player.play(tracks, index, PlayContext("jam", "Jam", "JAM"), shuffle = false)
+            if (offset > 0) app.player.seekTo(offset)
+            playerOpen = true
+            actions.toast("You're in the Jam")
         }
-        val (index, offset) = Jam.catchUp(inv, tracks)
-        app.player.play(tracks, index, PlayContext("jam", "Jam", "JAM"), shuffle = false)
-        if (offset > 0) app.player.seekTo(offset)
-        playerOpen = true
-        actions.toast("You're in the Jam")
     }
     // Tablets and wide windows swap the bottom bar for a rail down the left side.
     val screenWidth = LocalConfiguration.current.screenWidthDp
@@ -392,9 +405,10 @@ fun SpitifyRoot(app: SpitifyApp) {
             AddToPlaylistSheet(track = track, onDismiss = { addToPlaylist = null })
         }
         val closeSheet = { sheet = null }
-        when (val s = sheet) {
+        key(sheetOpens) { when (val s = sheet) {
             null -> Unit
             AppSheet.ProfileDrawer -> ProfileDrawer(onDismiss = closeSheet)
+            AppSheet.EditProfile -> EditProfileDialog(onDismiss = closeSheet)
             AppSheet.Create -> CreateSheet(onDismiss = closeSheet, onPick = { option ->
                 sheet = null
                 when (option) {
@@ -480,7 +494,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                     sheet = AppSheet.NewFolder
                 },
             )
-        }
+        } }
         collabInvite?.let { inv ->
             AlertDialog(
                 onDismissRequest = { collabInvite = null },

@@ -84,6 +84,16 @@ function socialRoute(action) {
 
 app.get('/api/social/me', signedIn, socialRoute((req) => social.friends(req.user)));
 app.put('/api/social/profile', signedIn, socialRoute((req) => social.updateProfile(req.user, req.body || {})));
+app.put('/api/social/avatar', signedIn, socialRoute((req) => social.setAvatar(req.user, req.body || {})));
+app.delete('/api/social/avatar', signedIn, socialRoute((req) => social.clearAvatar(req.user)));
+// Pictures are public so the phone's image loader can fetch them without a token, the same way
+// anyone can see a profile picture on a music app.
+app.get('/api/avatars/:name', (req, res) => {
+  const file = social.avatarPath(req.params.name);
+  if (!file) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.type('jpeg').sendFile(file);
+});
 app.get('/api/users/search', signedIn, socialRoute((req) => social.searchUsers(req.user, req.query.q)));
 app.get('/api/users/:name', signedIn, socialRoute((req) => social.profile(String(req.params.name).toLowerCase())));
 app.get('/api/friends', signedIn, socialRoute((req) => social.friends(req.user)));

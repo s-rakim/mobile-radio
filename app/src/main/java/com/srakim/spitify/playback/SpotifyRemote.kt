@@ -25,6 +25,8 @@ data class RemoteState(
     val canPlayOnDemand: Boolean = false,
     /** Why the last connect didn't work, in plain words. */
     val problem: String? = null,
+    /** The Spotify app wants you to allow Spitify once, on its own screen. */
+    val needsApproval: Boolean = false,
 )
 
 /**
@@ -48,7 +50,8 @@ interface SpotifyRemote {
     fun connect(context: Context, clientId: String, interactive: Boolean)
     fun disconnect()
 
-    fun play(uri: String)
+    /** [onError] hears back, in plain words, when the Spotify app refuses the song. */
+    fun play(uri: String, onError: (String) -> Unit = {})
     fun queue(uri: String)
     fun pause()
     fun resume()

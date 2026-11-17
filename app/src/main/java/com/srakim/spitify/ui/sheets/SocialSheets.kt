@@ -64,10 +64,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,22 +86,44 @@ import com.srakim.spitify.playback.OutputDevice
 import com.srakim.spitify.playback.rememberOutputDevice
 import com.srakim.spitify.ui.LocalActions
 import com.srakim.spitify.ui.LocalApp
+import coil.compose.AsyncImage
 import com.srakim.spitify.ui.components.Artwork
+import com.srakim.spitify.ui.components.MyAvatar
 import com.srakim.spitify.ui.theme.SpitifyColors
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** A friend's colour from the server, or the accent if it doesn't parse. */
 fun profileColor(hex: String?): Color =
     runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(SpitifyColors.Accent)
 
+/**
+ * Someone's round picture. [image] is a path the server sent, a full link, or a local file;
+ * their initial on their colour shows until it loads, and stays when there's no picture.
+ */
 @Composable
-fun Avatar(name: String, color: String?, size: Dp = 40.dp, modifier: Modifier = Modifier) {
+fun Avatar(name: String, color: String?, size: Dp = 40.dp, modifier: Modifier = Modifier, image: Any? = null) {
+    val app = LocalApp.current
+    val model = remember(image) { if (image is String) app.social.avatarUrl(image) else image }
     Box(modifier.size(size).clip(CircleShape).background(profileColor(color)), contentAlignment = Alignment.Center) {
         Text(
             name.trim().firstOrNull()?.uppercase() ?: "?",
-            style = if (size >= 56.dp) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+            style = when {
+                size >= 100.dp -> MaterialTheme.typography.displaySmall
+                size >= 56.dp -> MaterialTheme.typography.headlineSmall
+                else -> MaterialTheme.typography.titleMedium
+            },
             color = Color.Black.copy(alpha = 0.8f),
         )
+        if (model != null) {
+            AsyncImage(
+                model = model,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }
 
@@ -142,11 +166,17 @@ fun ProfileDrawer(onDismiss: () -> Unit) {
         visible.targetState = false
         then()
     }
-    LaunchedEffect(visible.currentState, closing) {
-        if (closing && !visible.currentState && visible.isIdle) onDismiss()
+    // Two animations share [visible], and its idle flag isn't something an effect can key on,
+    // so waiting for "idle and hidden" alone sometimes never fired. The drawer then stayed open
+    // with nothing on screen, and the profile button did nothing because it was already "open".
+    // Wait for the slide-out, but give up after it should have finished.
+    LaunchedEffect(closing) {
+        if (!closing) return@LaunchedEffect
+        withTimeoutOrNull(400) { snapshotFlow { visible.isIdle && !visible.currentState }.first { it } }
+        onDismiss()
     }
     LaunchedEffect(Unit) { if (acct.signedIn) app.social.refreshNow() }
-    BackHandler { close() }
+    BackHandler(enabled = !closing) { close() }
 
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
@@ -184,7 +214,7 @@ fun ProfileDrawer(onDismiss: () -> Unit) {
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(name, me?.color, 52.dp)
+                    MyAvatar(52.dp)
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -257,7 +287,7 @@ fun ProfileDrawer(onDismiss: () -> Unit) {
                         Modifier.fillMaxWidth().clickable { close { actions.openChat(c.with.username) } }.padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(c.with.displayName, c.with.color, 36.dp)
+                        Avatar(c.with.displayName, c.with.color, 36.dp, image = c.with.avatar)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(c.with.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
@@ -305,7 +335,7 @@ fun FriendActivityRow(f: Friend, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            Avatar(f.displayName, f.color, 40.dp)
+            Avatar(f.displayName, f.color, 40.dp, image = f.avatar)
             if (np?.live == true) {
                 Box(
                     Modifier.align(Alignment.BottomEnd).size(12.dp).clip(CircleShape).background(SpitifyColors.Elevated).padding(2.dp)
@@ -542,7 +572,7 @@ fun PersonRow(p: Profile, subtitle: String? = null, trailing: (@Composable () ->
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(p.displayName, p.color, 44.dp)
+        Avatar(p.displayName, p.color, 44.dp, image = p.avatar)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(p.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1)

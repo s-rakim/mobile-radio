@@ -139,7 +139,7 @@ fun HomeScreen() {
     }
 
     // The top of Home takes on the colour of whatever is playing, and falls back to the theme accent.
-    val nowColor by rememberArtworkColor(playback.current?.artwork, SpitifyColors.AccentDeep)
+    val nowColor by rememberArtworkColor(playback.current?.artwork, Color(0xFF3A3A3A))
     val glow = nowColor.copy(alpha = 0.6f)
 
     // Signed in to Spotify: your own recents, top songs, artists and playlists lead the page.
@@ -434,33 +434,49 @@ private fun TrackShelf(tracks: List<Track>, context: PlayContext, currentId: Str
     }
 }
 
-/** Generated cover for a genre mix: a colour block with the genre name, like a daily mix tile. */
+/**
+ * Cover for a genre mix, built like Spotify's mix covers: a photo from the genre's top song,
+ * a band of the mix colour along the bottom with its name, and a small accent mark top-left.
+ */
 @Composable
 fun MixCover(genre: String, color: Color, modifier: Modifier) {
-    Box(
+    val api = LocalApi.current
+    val cover = rememberLoad("mix-cover", genre) {
+        runCatching { api.trendingTracks(genre = genre, limit = 1).firstOrNull()?.let { it.artworkLarge ?: it.artwork } }.getOrNull()
+    }
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Brush.linearGradient(listOf(lerp(color, Color.White, 0.1f), color, lerp(color, Color.Black, 0.5f)))),
+            .clip(RoundedCornerShape(4.dp))
+            .background(lerp(color, Color.Black, 0.2f)),
     ) {
+        val big = maxWidth > 100.dp
+        Artwork((cover.state as? Load.Ready)?.data, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to lerp(color, Color.Black, 0.25f))))
         Box(
             Modifier
                 .align(Alignment.TopStart)
-                .padding(10.dp)
-                .width(28.dp)
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
+                .padding(if (big) 8.dp else 4.dp)
+                .size(if (big) 18.dp else 8.dp)
+                .clip(CircleShape)
                 .background(SpitifyColors.Accent),
         )
-        Text(
-            genre,
-            style = MaterialTheme.typography.titleLarge,
-            color = Color.White,
-            modifier = Modifier
+        Box(
+            Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f))))
-                .padding(10.dp),
+                .height(if (big) 6.dp else 3.dp)
+                .background(color),
         )
+        if (big) {
+            Text(
+                "$genre Mix",
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 14.dp),
+            )
+        }
     }
 }
 

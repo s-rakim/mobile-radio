@@ -39,6 +39,8 @@ enum class Quality(val label: String, val description: String) {
 @Serializable
 data class AppSettings(
     val profileName: String = "",
+    /** When the profile picture on this phone was set (its file is named after it), 0 for none. */
+    val profilePhoto: Long = 0,
     val crossfadeSeconds: Int = 0,
     val volumeLevel: VolumeLevel = VolumeLevel.NORMAL,
     val equalizerEnabled: Boolean = false,

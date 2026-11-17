@@ -215,7 +215,7 @@ fun StatsScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("${i + 1}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(28.dp))
-                    Avatar(p.displayName, p.color, 40.dp)
+                    Avatar(p.displayName, p.color, 40.dp, image = p.avatar)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(if (p.username == acct.username) "You" else p.displayName, style = MaterialTheme.typography.bodyLarge)
@@ -312,14 +312,30 @@ fun ImportScreen() {
         busy = "Loading your Spotify playlists…"
         error = null
         scope.launch {
-            runCatching { importer.myPlaylists() }
-                .onSuccess { showPlaylists(it, true) }
-                .onFailure { error = it.message ?: "Spotify didn't answer" }
-            busy = null
+            try {
+                showPlaylists(importer.myPlaylists(), true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "Spotify didn't answer"
+            } finally {
+                busy = null
+            }
         }
     }
 
-    LaunchedEffect(Unit) { if (importer.hasToken) loadSpotify() }
+    // Load your playlists as soon as you're signed in, including when the sign-in finishes
+    // while this screen is open.
+    val spotifySignedIn by importer.signedIn.collectAsStateWithLifecycle()
+    val signInState by importer.signIn.collectAsStateWithLifecycle()
+    LaunchedEffect(spotifySignedIn) { if (spotifySignedIn && step == ImportStep.Start) loadSpotify() }
+    LaunchedEffect(signInState) {
+        when (val s = signInState) {
+            com.srakim.spitify.data.SpotifyImport.SignIn.Working -> busy = "Signing in to Spotify…"
+            is com.srakim.spitify.data.SpotifyImport.SignIn.Failed -> { busy = null; error = s.message }
+            else -> Unit
+        }
+    }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -387,8 +403,13 @@ fun ImportScreen() {
                     )
                 }
                 item {
-                    ImportOption(Icons.Rounded.CheckCircle, "Sign in with Spotify", "Pick from your playlists and Liked Songs") {
-                        if (importer.clientId.isBlank()) askId = true
+                    ImportOption(
+                        Icons.Rounded.CheckCircle,
+                        if (spotifySignedIn) "Signed in to Spotify" else "Sign in with Spotify",
+                        if (spotifySignedIn) "Tap to load your playlists and Liked Songs" else "Pick from your playlists and Liked Songs",
+                    ) {
+                        if (spotifySignedIn) loadSpotify()
+                        else if (importer.clientId.isBlank()) askId = true
                         else runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, importer.authorizeUrl())) }
                             .onFailure { error = "No browser found to sign in with" }
                     }

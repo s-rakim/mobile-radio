@@ -32,6 +32,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.srakim.spitify.ui.components.Artwork
+import com.srakim.spitify.ui.components.ServerCoverage
+import com.srakim.spitify.ui.components.missingFromServer
+import com.srakim.spitify.ui.components.serverDecidesSpotifySongs
+import com.srakim.spitify.data.SpotifyImport
 import com.srakim.spitify.ui.components.Motion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -531,8 +535,15 @@ fun LazyListScope.collectionTracks(
     numbered: Boolean = false,
     showArtwork: Boolean = true,
 ) {
+    if (tracks.any { SpotifyImport.isSpotify(it.id) }) {
+        item(key = "server-coverage:${context.id}") {
+            if (serverDecidesSpotifySongs()) ServerCoverage(tracks)
+        }
+    }
     items(tracks.size, key = { "${context.id}:${tracks[it].id}:$it" }) { i ->
         val t = tracks[i]
+        // Spotify songs your server doesn't have are greyed out: they won't play until you add them.
+        val missing = missingFromServer(t, serverDecidesSpotifySongs())
         TrackRow(
             track = t,
             isCurrent = t.id == currentId,
@@ -542,7 +553,8 @@ fun LazyListScope.collectionTracks(
             onMore = { onMore(t) },
             number = if (numbered) i + 1 else null,
             showArtwork = showArtwork,
-            modifier = Modifier.appear(i),
+            subtitle = if (missing) "Not on your server · ${t.artist}" else null,
+            modifier = Modifier.appear(i).alpha(if (missing) 0.45f else 1f),
         )
     }
 }

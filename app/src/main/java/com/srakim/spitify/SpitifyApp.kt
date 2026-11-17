@@ -57,12 +57,14 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val library: LibraryStore by lazy { LibraryStore(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val themes: ThemeStore by lazy { ThemeStore(this) }
-    val downloads: DownloadStore by lazy { DownloadStore(this, httpClient, settings) }
+    /** Your server's copies of songs from everywhere else. See data/ServerCopies.kt. */
+    val serverCopies: com.srakim.spitify.data.ServerCopies by lazy { com.srakim.spitify.data.ServerCopies(this, webServer, settings) }
+    val downloads: DownloadStore by lazy { DownloadStore(this, httpClient, settings, serverCopies) }
     val updater: AppUpdater by lazy { AppUpdater(this, httpClient) }
     val account: AccountSync by lazy { AccountSync(this, httpClient, settings, library) }
     val radio: RadioBrowserApi by lazy { RadioBrowserApi(this, httpClient) }
     val player: PlayerController by lazy {
-        PlayerController(this, api, library, settings, downloads, radio).also { p ->
+        PlayerController(this, api, library, settings, downloads, radio, serverCopies).also { p ->
             p.spotify = com.srakim.spitify.playback.SpotifyBridge(
                 spotifyRemote,
                 settings,
@@ -75,7 +77,9 @@ class SpitifyApp : Application(), ImageLoaderFactory {
     val social: SocialStore by lazy { SocialStore(this, account, settings) }
     val stats: ListeningStats by lazy { ListeningStats(this, settings) }
     val nearby: NearbyJam by lazy { NearbyJam(this) }
-    val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy { com.srakim.spitify.data.SpotifyImport(this, httpClient, settings) }
+    val spotifyImport: com.srakim.spitify.data.SpotifyImport by lazy {
+        com.srakim.spitify.data.SpotifyImport(this, httpClient, settings).also { it.serverCopies = serverCopies }
+    }
     val spotifyLibrary: com.srakim.spitify.data.SpotifyLibrary by lazy { com.srakim.spitify.data.SpotifyLibrary(spotifyImport) }
     val dj: com.srakim.spitify.data.AiDj by lazy { com.srakim.spitify.data.AiDj(this) }
     /** Lives as long as the app, for work that must finish even if the screen that started it closes. */

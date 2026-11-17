@@ -367,8 +367,11 @@ fun ImportScreen() {
                     step = ImportStep.Matching(source.name, done, total, i + 1, chosen.size)
                 }
                 val found = matches.mapNotNull { it.track }
-                val made = if (found.isNotEmpty()) {
-                    app.library.createPlaylist(source.name, found, description = "Imported from Spotify")
+                // Songs nobody has yet stay in the playlist as Spotify songs, greyed out, and play
+                // from your server as soon as you add them there.
+                val keep = matches.mapNotNull { m -> m.track ?: m.source.uri?.let { m.source.asTrack() } }
+                val made = if (keep.isNotEmpty()) {
+                    app.library.createPlaylist(source.name, keep, description = "Imported from Spotify")
                 } else null
                 results += ImportResult(made, source.name, found.size, matches.filter { it.track == null }.map { it.source })
             }
@@ -396,7 +399,8 @@ fun ImportScreen() {
             ImportStep.Start -> {
                 item {
                     Text(
-                        "Bring your playlists over. Each song is looked up on Audius and the ones it finds go into a new playlist in Your Library.",
+                        if (app.serverCopies.enabled) "Bring your playlists over. Each song is looked up on your server and only the exact song counts. Songs it doesn't have stay in the playlist, greyed out, until you add them."
+                        else "Bring your playlists over. Each song is looked up in Spitify's sources and only the exact song counts. Set up your server in Settings to play them from there.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = SpitifyColors.TextSecondary,
                         modifier = Modifier.padding(16.dp),
@@ -479,7 +483,7 @@ fun ImportScreen() {
                 item {
                     val total = s.results.sumOf { it.found }
                     Text(
-                        "Done. $total songs found across ${s.results.count { it.playlist != null }} playlists.",
+                        "Done. $total songs ready to play across ${s.results.count { it.playlist != null }} playlists.",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp),
                     )
@@ -489,7 +493,8 @@ fun ImportScreen() {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(8.dp)).background(SpitifyColors.Elevated).padding(14.dp)) {
                         Text(r.name, style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            if (r.playlist == null) "Nothing matched" else "${r.found} added" + if (r.missing.isNotEmpty()) ", ${r.missing.size} not on Audius" else "",
+                            if (r.playlist == null) "Nothing matched"
+                            else "${r.found} ready to play" + if (r.missing.isNotEmpty()) ", ${r.missing.size} ${if (app.serverCopies.enabled) "not on your server yet" else "not found"}" else "",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

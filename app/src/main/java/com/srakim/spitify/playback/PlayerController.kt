@@ -15,6 +15,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.srakim.spitify.data.AudiusApi
 import com.srakim.spitify.data.DownloadStore
+import com.srakim.spitify.data.ServerCopies
 import com.srakim.spitify.data.SettingsStore
 import java.io.File
 import com.srakim.spitify.data.LibraryStore
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One song after the current one. [queued] is true for songs added with Add to Queue or Play next. */
 data class QueueEntry(val index: Int, val track: Track, val queued: Boolean = false, val suggested: Boolean = false)
@@ -84,6 +86,7 @@ class PlayerController(
     private val settings: SettingsStore,
     private val downloads: DownloadStore,
     private val radio: RadioBrowserApi,
+    private val copies: ServerCopies,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -128,6 +131,8 @@ class PlayerController(
     private var remoteJob: Job? = null
     private var remoteQueuedAfter = -1
     private var standInJob: Job? = null
+    private var firstLookup: Job? = null
+    private var upgradeJob: Job? = null
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -136,6 +141,7 @@ class PlayerController(
         override fun onEvents(player: Player, events: Player.Events) = sync()
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            upgradeSoon()
             val finished = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
             if (sleepAtTrackEnd && finished) {
                 sleepAtTrackEnd = false
@@ -159,6 +165,16 @@ class PlayerController(
 
         override fun onPlayerError(error: PlaybackException) {
             val c = controller ?: return
+            val failed = c.currentMediaItem?.toTrack()
+            if (failed != null && serverFirst() && copies.known(failed) != null && downloads.fileFor(failed.id) == null) {
+                // Your server didn't answer: play this one (and the next few minutes) from where it came from.
+                copies.markUnreachable()
+                _messages.tryEmit("Couldn't reach your server, playing from ${failed.source} for now")
+                c.replaceMediaItem(c.currentMediaItemIndex, mediaItemFor(failed))
+                c.prepare()
+                c.play()
+                return
+            }
             _messages.tryEmit("Couldn't play that one, skipping ahead")
             if (c.hasNextMediaItem()) {
                 c.seekToNextMediaItem()
@@ -205,20 +221,30 @@ class PlayerController(
         if (settings.current.offlineMode) {
             // Offline mode only plays what's on the phone: downloads and local files.
             val wanted = tracks.getOrNull(startIndex)
-            val playable = tracks.filter { it.isLocal || downloads.fileFor(it.id) != null }
+            // A Spotify song plays offline from the copy saved off your server, if there is one.
+            val onPhone = tracks.mapNotNull { t ->
+                when {
+                    t.isLocal || downloads.fileFor(t.id) != null -> t
+                    else -> copies.remembered(t)?.takeIf { downloads.fileFor(it.id) != null }
+                }
+            }
+            if (onPhone.size == tracks.size && onPhone != tracks) return play(onPhone, startIndex, from, shuffle)
+            val playable = onPhone
             if (playable.isEmpty()) {
                 _messages.tryEmit("Offline mode is on. Download songs to play them offline.")
                 return
             }
             if (playable.size != tracks.size) {
-                val start = playable.indexOfFirst { it.id == wanted?.id }.coerceAtLeast(0)
-                if (wanted != null && playable.none { it.id == wanted.id }) _messages.tryEmit("That song isn't downloaded, playing your downloads")
+                val start = playable.indexOfFirst { it.id == wanted?.id || it.id == wanted?.let { w -> copies.remembered(w)?.id } }.coerceAtLeast(0)
+                val wantedId = wanted?.let { copies.remembered(it)?.id ?: it.id }
+                if (wanted != null && playable.none { it.id == wantedId }) _messages.tryEmit("That song isn't downloaded, playing your downloads")
                 return play(playable, start, from, shuffle)
             }
         }
         if (tracks.isEmpty()) return
         val first = tracks.getOrNull(startIndex.coerceIn(tracks.indices))
-        if (first != null && SpotifyImport.isSpotify(first.id)) {
+        firstLookup?.cancel()
+        if (first != null && SpotifyImport.isSpotify(first.id) && !serverFirst()) {
             playSpotify(tracks, startIndex.coerceIn(tracks.indices), from, shuffle)
             return
         }
@@ -232,8 +258,31 @@ class PlayerController(
         startLocal(tracks, startIndex, from, shuffle)
     }
 
-    /** Plays [tracks] on the phone. None of them may be Spotify songs by now. */
+    /**
+     * Your server is where songs come from: Spotify songs are played from its copies instead of
+     * the Spotify app, and songs from Audius and the rest use its copy whenever it has one.
+     */
+    private fun serverFirst() = settings.current.alwaysFromServer && copies.enabled
+
+    /**
+     * Plays [tracks] on the phone. None of them may be Spotify songs by now. The first song's
+     * server copy is looked up before it starts (once per song, then it's remembered), so it
+     * doesn't start on one source and jump to another.
+     */
     private fun startLocal(tracks: List<Track>, startIndex: Int, from: PlayContext?, shuffle: Boolean?) {
+        val first = tracks.getOrNull(startIndex.coerceIn(tracks.indices))
+        firstLookup?.cancel()
+        if (first != null && shuffle != true && serverFirst() && downloads.fileFor(first.id) == null && !copies.settled(first)) {
+            firstLookup = scope.launch {
+                withTimeoutOrNull(FIRST_LOOKUP_MS) { copies.find(first) }
+                startNow(tracks, startIndex, from, shuffle)
+            }
+            return
+        }
+        startNow(tracks, startIndex, from, shuffle)
+    }
+
+    private fun startNow(tracks: List<Track>, startIndex: Int, from: PlayContext?, shuffle: Boolean?) {
         tracks.forEach { known[it.id] = it }
         playContext = from
         if (shuffle != null) setShuffle(shuffle)
@@ -248,6 +297,36 @@ class PlayerController(
             c.setMediaItems(items.map { mediaItemFor(it) }, startAt, 0L)
             c.prepare()
             c.play()
+            upgradeSoon()
+        }
+    }
+
+    /**
+     * Moves songs further down the queue onto your server's copies as they're found. Each song
+     * keeps its own id, so likes, the queue and Now Playing don't notice; only where the audio
+     * comes from changes. The song that's playing is left alone.
+     */
+    private fun upgradeSoon() {
+        if (!serverFirst()) return
+        upgradeJob?.cancel()
+        upgradeJob = scope.launch {
+            delay(400)
+            val c = controller ?: return@launch
+            val from = c.currentMediaItemIndex.coerceAtLeast(0)
+            val todo = (from until minOf(c.mediaItemCount, from + UPGRADE_AHEAD))
+                .map { c.getMediaItemAt(it).toTrack() }
+                .filter { copies.wants(it) && !copies.settled(it) && downloads.fileFor(it.id) == null }
+            val gate = Semaphore(3)
+            coroutineScope {
+                todo.map { t ->
+                    async {
+                        gate.withPermit { copies.find(t) } ?: return@async
+                        val cc = controller ?: return@async
+                        val at = (0 until cc.mediaItemCount).firstOrNull { cc.getMediaItemAt(it).mediaId == t.id } ?: return@async
+                        if (at != cc.currentMediaItemIndex) cc.replaceMediaItem(at, mediaItemFor(t))
+                    }
+                }.awaitAll()
+            }
         }
     }
 
@@ -454,6 +533,7 @@ class PlayerController(
             } else {
                 queuedIds += track.id
                 c.addMediaItem(c.currentMediaItemIndex + 1, mediaItemFor(track))
+                upgradeSoon()
             }
         }
     }
@@ -470,6 +550,7 @@ class PlayerController(
                 val at = c.currentMediaItemIndex + 1 + pendingQueued(c).size
                 queuedIds += track.id
                 c.addMediaItem(at, mediaItemFor(track))
+                upgradeSoon()
             }
         }
     }
@@ -481,6 +562,7 @@ class PlayerController(
         tracks.forEach { known[it.id] = it }
         withController { c ->
             if (c.mediaItemCount == 0) play(tracks, 0, playContext) else c.addMediaItems(tracks.map { mediaItemFor(it) })
+            upgradeSoon()
         }
     }
 
@@ -494,6 +576,7 @@ class PlayerController(
             val from = c.currentMediaItemIndex + 1 + pendingQueued(c).size
             if (from < c.mediaItemCount) c.removeMediaItems(from, c.mediaItemCount)
             c.addMediaItems(tracks.map { mediaItemFor(it) })
+            upgradeSoon()
         }
     }
 
@@ -650,11 +733,15 @@ class PlayerController(
                 }
             }
             val found = first ?: run {
-                _messages.tryEmit(lead ?: "Couldn't find \"${wanted.firstOrNull()?.title}\" anywhere Spitify can play it")
+                _messages.tryEmit(lead ?: "\"${wanted.firstOrNull()?.title}\" isn't on your server or anywhere Spitify plays from")
                 return@launch
             }
             startLocal(listOf(found.track), 0, from, shuffle)
-            val skipped = if (firstAt > 0) "Skipped $firstAt ${if (firstAt == 1) "song" else "songs"} Spitify couldn't find." else null
+            val skipped = when {
+                firstAt == 1 -> wanted[0].let { "Skipped \"${it.title}\" by ${it.artist}: it isn't on your server or anywhere Spitify plays from." }
+                firstAt > 1 -> "Skipped $firstAt songs that aren't on your server or anywhere Spitify plays from."
+                else -> null
+            }
             listOfNotNull(lead, skipped).joinToString(" ").ifBlank { null }?.let { _messages.tryEmit(it) }
             val gate = Semaphore(3)
             val rest = coroutineScope {
@@ -668,12 +755,8 @@ class PlayerController(
     private val standInNotes = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private fun noteStandIn(original: Track, s: StandIn) {
-        val note = when (s.kind) {
-            StandIn.Kind.EXACT -> return
-            StandIn.Kind.CLOSE -> "Closest match on Spitify: ${s.track.title} by ${s.track.artist}"
-            StandIn.Kind.SAME_ARTIST -> "Spitify can't find \"${original.title}\", so here's ${s.track.title} by ${s.track.artist}"
-        }
-        standInNotes[s.track.id] = note
+        // Only the exact song is ever used, so there's nothing to explain.
+        if (s.kind == StandIn.Kind.EXACT) return
     }
 
     /** The Spotify app stopped playing for us: pick up the same list on Spitify's player. */
@@ -748,7 +831,11 @@ class PlayerController(
         }
     }
 
-    private fun mediaItemFor(track: Track): MediaItem = track.toMediaItem(downloads.fileFor(track.id))
+    private fun mediaItemFor(track: Track): MediaItem {
+        val local = downloads.fileFor(track.id)
+        val fromServer = if (local == null && serverFirst()) copies.known(track)?.playbackUri() else null
+        return track.toMediaItem(local, fromServer)
+    }
 
     private fun withController(action: (MediaController) -> Unit) {
         val c = controller
@@ -771,6 +858,7 @@ class PlayerController(
             lastRecordedId = current.id
             standInNotes.remove(current.id)?.let { _messages.tryEmit(it) }
             if (!settings.current.privateSession) library.recordPlay(current)
+            downloads.saveFromServer(current)
             if (current.isRadio) scope.launch { radio.reportPlay(current) }
         }
         if (current != null && !current.isRadio && !c.hasNextMediaItem() && c.repeatMode == Player.REPEAT_MODE_OFF) {
@@ -877,6 +965,12 @@ internal const val EXTRA_MIME = "spitify.mime"
 /** How many songs of a Spotify list get swapped for stand-ins when Spotify can't play them. */
 private const val STAND_IN_MAX = 30
 
+/** How long a song waits for your server to say whether it has it, the first time it's played. */
+private const val FIRST_LOOKUP_MS = 2_500L
+
+/** How far down the queue songs are moved onto your server ahead of time. */
+private const val UPGRADE_AHEAD = 40
+
 fun Track.remoteUri(): Uri = Uri.parse(SpitifyServerApi.resolve(streamUrl) ?: AudiusApi.streamUrl(id))
 
 /**
@@ -889,13 +983,13 @@ fun Track.playbackUri(): Uri {
     return FallbackDataSource.withFallback(Uri.parse(direct), remoteUri())
 }
 
-fun Track.toMediaItem(localFile: File? = null): MediaItem = MediaItem.Builder()
+fun Track.toMediaItem(localFile: File? = null, from: Uri? = null): MediaItem = MediaItem.Builder()
     .setMediaId(id)
-    .setUri(localFile?.let(Uri::fromFile) ?: playbackUri())
+    .setUri(localFile?.let(Uri::fromFile) ?: from ?: playbackUri())
     // The URI itself doesn't survive the trip to the playback service, request metadata does.
     .setRequestMetadata(
         MediaItem.RequestMetadata.Builder()
-            .setMediaUri(playbackUri())
+            .setMediaUri(from ?: playbackUri())
             // The MIME type doesn't survive the trip either; HLS radio needs it when the address doesn't end in .m3u8.
             .setExtras(if (hls) android.os.Bundle().apply { putString(EXTRA_MIME, MimeTypes.APPLICATION_M3U8) } else null)
             .build(),

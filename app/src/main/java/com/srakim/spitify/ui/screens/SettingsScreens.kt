@@ -752,6 +752,20 @@ private fun SettingsSectionPage(page: SettingsSection) {
                         settings.webServerEnabled,
                     ) { v -> set { it.copy(webServerEnabled = v) } }
                 }
+                item {
+                    ToggleRow(
+                        "Always play from your Spitify server",
+                        "Spotify songs and songs from Audius and the rest play the exact song from your Spitify server. Spotify songs it can't find are greyed out.",
+                        settings.alwaysFromServer,
+                    ) { v -> set { it.copy(alwaysFromServer = v) } }
+                }
+                item {
+                    ToggleRow(
+                        "Save songs from your Spitify server",
+                        "Songs that play from your server are downloaded too, so they play offline. Follows the Wi-Fi only setting.",
+                        settings.saveFromServer,
+                    ) { v -> set { it.copy(saveFromServer = v) } }
+                }
                 group("Local files")
                 item {
                     ToggleRow(

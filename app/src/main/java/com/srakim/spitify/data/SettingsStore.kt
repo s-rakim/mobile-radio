@@ -68,6 +68,13 @@ data class AppSettings(
     val subsonicUrl: String = "",
     val subsonicUser: String = "",
     val subsonicPassword: String = "",
+    /**
+     * Songs come from your server whenever it has the exact song: Spotify songs (instead of the
+     * Spotify app) and songs from Audius and the rest alike.
+     */
+    val alwaysFromServer: Boolean = true,
+    /** Songs that play from your server are saved on the phone too, for offline. */
+    val saveFromServer: Boolean = true,
     val showLocalFiles: Boolean = true,
     /** The Spitify web server at home, for YouTube and the open catalogues. */
     val webServerEnabled: Boolean = true,

@@ -139,13 +139,29 @@ jobs:
       - name: Spotify for the tour
         env:
           ID: ${{ secrets.SPOTIFY_CLIENT_ID || vars.SPOTIFY_CLIENT_ID || 'e8b9ce6fd41c44acb05eb5ab44f149f0' }}
-          SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET || vars.SPOTIFY_CLIENT_SECRET }}
         run: |
           if [ -n "$SECRET" ]; then
             echo "SPOTIFY_TOUR_ARGS=-e spotifyClientId $ID -e spotifyClientSecret $SECRET" >> "$GITHUB_ENV"
           else
             echo "::notice::SPOTIFY_CLIENT_SECRET isn't set, so the tour skips Spotify pages."
           fi
+
+      # A throwaway Spitify server next to the emulator (10.0.2.2 from inside it), so the tour can
+      # sign in, chat with a second account and send songs for real.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Spitify server for the chat tour
+        run: |
+          cd server
+          npm install --omit=dev --no-audit --no-fund
+          mkdir -p "$RUNNER_TEMP/spitify-data"
+          DATA_DIR="$RUNNER_TEMP/spitify-data" PORT=3000 nohup node index.js > "$RUNNER_TEMP/spitify-server.log" 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null localhost:3000 && break; sleep 1; done
+          curl -s -o /dev/null -w "server answers: %{http_code}\n" localhost:3000
+          echo "CHAT_TOUR_ARGS=-e chatServer http://10.0.2.2:3000" >> "$GITHUB_ENV"
 
       - name: Run the tour on an emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -159,9 +175,10 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -e class com.srakim.spitify.ScreenTour $SPOTIFY_TOUR_ARGS com.srakim.spitify.debug.test/androidx.test.runner.AndroidJUnitRunner || true
+            adb shell am instrument -w -e class com.srakim.spitify.ScreenTour $SPOTIFY_TOUR_ARGS $CHAT_TOUR_ARGS com.srakim.spitify.debug.test/androidx.test.runner.AndroidJUnitRunner || true
             mkdir -p shots && adb pull /sdcard/Android/data/com.srakim.spitify.debug/files/shots/. shots/ || true
             ls -la shots
+            cat shots/*.txt || true
 
       - uses: actions/upload-artifact@v4
         with:

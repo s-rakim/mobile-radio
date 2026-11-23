@@ -1,5 +1,7 @@
 package com.srakim.spitify.ui
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
@@ -283,7 +285,7 @@ fun SpitifyRoot(app: SpitifyApp) {
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val wide = screenWidth >= WIDE_SCREEN_DP
     val contentWidth = if (wide) (screenWidth - RAIL_WIDTH).dp else screenWidth.dp
-    val bottomInset by animateDpAsState(
+    val guessedInset by animateDpAsState(
         when {
             wide -> if (playback.current != null) 88.dp else 16.dp
             playback.current != null -> 150.dp
@@ -292,6 +294,16 @@ fun SpitifyRoot(app: SpitifyApp) {
         spring(stiffness = Spring.StiffnessMediumLow),
         label = "bottomInset",
     )
+    // The mini player, Jam banner and tab bar as they really measure. Phones with three-button
+    // navigation or a Jam banner showing are taller than the guess, and anything that has to stay
+    // in sight above them (the chat bar) needs the real number.
+    val density = LocalDensity.current
+    var chromePx by remember { mutableStateOf(0) }
+    val bottomInset = maxOf(guessedInset, with(density) { chromePx.toDp() })
+    val route = nav.currentBackStackEntryAsState().value?.destination?.route.orEmpty()
+    // Pages with a bar typed into at the bottom don't want the fade above the mini player
+    // drawn over it.
+    val typingPage = route.endsWith(Dest.CHAT)
     LaunchedEffect(settings.showLocalFiles) {
         if (settings.showLocalFiles) app.localMusic.refresh()
     }
@@ -350,7 +362,8 @@ fun SpitifyRoot(app: SpitifyApp) {
                             ),
                     ) {
                         Column {
-                            if (!wide) Spacer(Modifier.height(40.dp))
+                            if (!wide && !typingPage) Spacer(Modifier.height(40.dp))
+                            Column(Modifier.onSizeChanged { chromePx = it.height }) {
                             val jamHost = nearbyJams.firstOrNull { it !in hiddenJams }
                             AnimatedVisibility(
                                 visible = jamHost != null && !hostingJam && playback.context?.id != "jam:$jamHost",
@@ -378,6 +391,7 @@ fun SpitifyRoot(app: SpitifyApp) {
                             }
                             if (wide) Spacer(Modifier.navigationBarsPadding().height(8.dp))
                             else BottomBar(nav, onCreate = { sheet = AppSheet.Create })
+                            }
                         }
                     }
                 }

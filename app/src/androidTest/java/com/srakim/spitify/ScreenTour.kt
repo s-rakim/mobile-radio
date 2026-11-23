@@ -57,7 +57,21 @@ class ScreenTour {
         device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 30)
     }
 
-    private fun step(block: () -> Unit) = runCatching(block).onFailure { it.printStackTrace() }
+    private fun step(block: () -> Unit) = runCatching { ensureApp(); block() }.onFailure { it.printStackTrace() }
+
+    /**
+     * Brings the app back if a missed tap let the Back presses walk out of it, so one slow frame
+     * doesn't leave the rest of the tour photographing the launcher.
+     */
+    private fun ensureApp() {
+        val context = instrumentation.targetContext
+        device.findObject(By.text("Wait"))?.click()
+        if (device.currentPackageName == context.packageName) return
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        context.startActivity(launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), 10_000)
+        Thread.sleep(2500)
+    }
 
     /** Taps a search filter, scrolling the row of filters along until it shows. */
     private fun tapPill(text: String) {
@@ -106,6 +120,106 @@ class ScreenTour {
      * Artist pages and song details from real Spotify. CI passes the Spotify app's client id and
      * secret; without them these steps are skipped and a marker file says so.
      */
+    /** POSTs JSON to the tour's own Spitify server and returns the reply. */
+    private fun post(url: String, body: org.json.JSONObject, token: String? = null): org.json.JSONObject {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        token?.let { c.setRequestProperty("Authorization", "Bearer $it") }
+        c.outputStream.use { it.write(body.toString().toByteArray()) }
+        val text = (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().readText()
+        return org.json.JSONObject(text.ifBlank { "{}" })
+    }
+
+    private fun get(url: String, token: String): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.setRequestProperty("Authorization", "Bearer $token")
+        return c.inputStream.bufferedReader().readText()
+    }
+
+    /**
+     * Chat against a real Spitify server that CI starts next to the emulator: the bar has to sit
+     * above the mini player and tab bar, and above the keyboard while typing; a friend's Spotify
+     * song arrives as a playable card; and a song can be sent from the chat itself.
+     */
+    private fun chatTour() {
+        val server = InstrumentationRegistry.getArguments().getString("chatServer").orEmpty()
+        if (server.isBlank()) {
+            File(out, "70-chat-SKIPPED-no-server.txt").writeText("CI starts a Spitify server for the chat steps; none was given.")
+            return
+        }
+        val report = StringBuilder()
+        // This phone signs in as "malcolm"; "alex" is the friend on the other end.
+        instrumentation.runOnMainSync { app.settings.update { it.copy(webServerUrl = server) } }
+        Thread.sleep(500)
+        val signedIn = java.util.concurrent.CountDownLatch(1)
+        var signInResult: Result<Unit>? = null
+        app.account.signIn("malcolm", "tour-pass-1", create = true) { signInResult = it; signedIn.countDown() }
+        signedIn.await(30, java.util.concurrent.TimeUnit.SECONDS)
+        report.appendLine("sign in: ${signInResult?.exceptionOrNull()?.message ?: "ok"}")
+        val alex = post("$server/api/auth/register", org.json.JSONObject().put("username", "alex").put("password", "tour-pass-1")).optString("token")
+        report.appendLine("alex token: ${alex.isNotBlank()}")
+
+        // Alex sends a Spotify song, the way the app would after a Spotify import.
+        val song = runCatching { runBlocking { app.spotifyImport.searchTracks("track:\"Diamonds\" artist:\"Rihanna\"") }.first() }
+            .getOrElse { app.player.state.value.current?.copy(id = "spotify:track:tourdiamonds") }
+        song?.let { t ->
+            val track = org.json.JSONObject()
+                .put("id", t.id).put("title", t.title).put("artist", t.artist).put("durationSec", t.durationSec)
+                .put("artwork", t.artwork ?: org.json.JSONObject.NULL).put("artworkLarge", t.artworkLarge ?: org.json.JSONObject.NULL)
+                .put("album", t.album ?: org.json.JSONObject.NULL)
+            val sent = post("$server/api/messages/malcolm", org.json.JSONObject().put("kind", "track").put("text", "this one").put("track", track), alex)
+            report.appendLine("alex sent ${t.id}: ${sent.optString("id").ifBlank { sent.toString() }}")
+        }
+
+        step {
+            Links.incoming.value = Links.Link.User("alex")
+            Thread.sleep(4000)
+            tap("Message")
+            shot("70-chat-above-mini-player", 5000)
+        }
+        step {
+            device.findObject(By.text("Message"))?.click()
+            Thread.sleep(1200)
+            device.findObject(By.clazz("android.widget.EditText"))?.text = "Sending you one back"
+            shot("71-chat-keyboard-open", 2500)
+            device.pressBack() // keyboard down
+            Thread.sleep(800)
+        }
+        step {
+            tapDesc("Send a song")
+            shot("72-song-picker", 3000)
+            device.findObject(By.descStartsWith("Send song:"))?.click()
+            shot("73-chat-song-sent", 5000)
+        }
+        // What alex sees: the song from this phone, as a playable card with title, artist and cover.
+        step {
+            val chat = org.json.JSONObject(get("$server/api/messages/malcolm", alex)).getJSONArray("messages")
+            for (i in 0 until chat.length()) {
+                val m = chat.getJSONObject(i)
+                val t = m.optJSONObject("track")
+                report.appendLine("${m.optString("from")}: ${m.optString("kind")} ${m.optString("text")} ${t?.optString("title")} / ${t?.optString("artist")} / art=${t?.has("artwork")} / stream=${t?.optString("streamUrl")}")
+            }
+        }
+        // The friend's Spotify song plays when tapped.
+        step {
+            // The friend's card is the one with their note on it.
+            tap("this one")
+            var playing: String? = null
+            repeat(30) {
+                if (playing == null) {
+                    Thread.sleep(500)
+                    playing = app.player.state.value.current?.takeIf { it.id == song?.id && app.player.state.value.isPlaying }?.title
+                }
+            }
+            report.appendLine("received song plays: ${playing != null}")
+            shot("74-received-song-playing", 3000)
+            device.pressBack()
+        }
+        File(out, "75-chat-report.txt").writeText(report.toString())
+    }
+
     private fun spotifyPages() {
         val args = InstrumentationRegistry.getArguments()
         val id = args.getString("spotifyClientId").orEmpty()
@@ -274,6 +388,7 @@ class ScreenTour {
 
             lyricSearch()
             spotifyPages()
+            chatTour()
         }
     }
 }
